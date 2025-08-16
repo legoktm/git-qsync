@@ -96,9 +96,26 @@ fn test_export_without_qvm_move() {
     let mut cmd = Command::cargo_bin("git-qsync").unwrap();
     cmd.current_dir(temp_dir.path());
     cmd.args(["export"]);
-    cmd.assert().failure().stderr(
-        predicate::str::contains("qvm-move").or(predicate::str::contains("Bundle creation failed")),
-    );
+
+    // On Qubes systems where qvm-move is available, this should succeed
+    // On other systems, it should fail with qvm-move or bundle creation error
+    let result = cmd.assert();
+    if std::process::Command::new("qvm-move")
+        .arg("--help")
+        .output()
+        .is_ok()
+    {
+        // qvm-move is available, expect success
+        result
+            .success()
+            .stdout(predicate::str::contains("commits:"));
+    } else {
+        // qvm-move not available, expect failure
+        result.failure().stderr(
+            predicate::str::contains("qvm-move")
+                .or(predicate::str::contains("Bundle creation failed")),
+        );
+    }
 }
 
 #[test]
@@ -122,9 +139,26 @@ fn test_export_with_no_qvm_move() {
     let mut cmd = Command::cargo_bin("git-qsync").unwrap();
     cmd.current_dir(temp_dir.path());
     cmd.args(["export"]);
-    cmd.assert().failure().stderr(
-        predicate::str::contains("qvm-move").or(predicate::str::contains("Bundle creation failed")),
-    );
+
+    // On Qubes systems where qvm-move is available, this should succeed
+    // On other systems, it should fail with qvm-move or bundle creation error
+    let result = cmd.assert();
+    if std::process::Command::new("qvm-move")
+        .arg("--help")
+        .output()
+        .is_ok()
+    {
+        // qvm-move is available, expect success
+        result
+            .success()
+            .stdout(predicate::str::contains("commits:"));
+    } else {
+        // qvm-move not available, expect failure
+        result.failure().stderr(
+            predicate::str::contains("qvm-move")
+                .or(predicate::str::contains("Bundle creation failed")),
+        );
+    }
 }
 
 #[test]
