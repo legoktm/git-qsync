@@ -1,6 +1,6 @@
-use std::process::Command;
 use anyhow::Result;
 use crate::error::QSyncError;
+use crate::command_utils::execute_command;
 
 pub struct Config {
     pub target_vm: Option<String>,
@@ -36,9 +36,7 @@ impl Config {
 }
 
 fn get_git_config(key: &str) -> Result<Option<String>> {
-    let output = Command::new("git")
-        .args(["config", "--get", key])
-        .output()?;
+    let output = execute_command("git", &["config", "--get", key])?;
     
     if output.status.success() {
         let value = String::from_utf8(output.stdout)?
@@ -64,9 +62,7 @@ pub fn get_project_name() -> Result<String> {
 }
 
 pub fn get_current_branch() -> Result<String> {
-    let output = Command::new("git")
-        .args(["rev-parse", "--abbrev-ref", "HEAD"])
-        .output()?;
+    let output = execute_command("git", &["rev-parse", "--abbrev-ref", "HEAD"])?;
     
     if !output.status.success() {
         return Err(QSyncError::NotInGitRepo.into());
@@ -80,9 +76,7 @@ pub fn get_current_branch() -> Result<String> {
 }
 
 pub fn check_git_repo() -> Result<()> {
-    let output = Command::new("git")
-        .args(["rev-parse", "--git-dir"])
-        .output()?;
+    let output = execute_command("git", &["rev-parse", "--git-dir"])?;
     
     if !output.status.success() {
         return Err(QSyncError::NotInGitRepo.into());

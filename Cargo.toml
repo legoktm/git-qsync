@@ -9,11 +9,11 @@ path = "src/main.rs"
 
 [[bin]]
 name = "git-qe"
-path = "src/git-qe.rs"
+path = "src/main.rs"
 
 [[bin]]
 name = "git-qi"
-path = "src/git-qi.rs"
+path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4.0", features = ["derive"] }
@@ -22,6 +22,8 @@ anyhow = "1.0"
 dialoguer = "0.11"
 walkdir = "2.0"
 jiff = "0.2"
+log = "0.4"
+env_logger = "0.11"
 
 [dev-dependencies]
 tempfile = "3.0"

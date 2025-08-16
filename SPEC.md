@@ -11,7 +11,7 @@ A CLI tool for transferring git branches between Qubes VMs using git bundles and
 **Behavior**:
 - Creates git bundle of specified branch (defaults to current branch)
 - Generates bundle filename: `{project-name}_{branch-name}_{timestamp}.bundle`
-- Executes `qvm-move bundle-file target-vm`
+- Executes `qvm-move bundle-file` (user will be prompted to select target VM)
 
 ### Import Command: `git qsync import` (alias: `git qi`)
 **Usage**: `git qi [bundle-file]`
@@ -29,15 +29,11 @@ A CLI tool for transferring git branches between Qubes VMs using git bundles and
 ```ini
 [qsync]
     source-vm = dev-vm    # Required for import
-    target-vm = work-vm   # Required for export
 ```
 
 **Access via git config**:
 ```bash
-# Set default target VM
-git config --global qsync.target-vm work-vm
-
-# Set default source VM
+# Set default source VM for imports
 git config --global qsync.source-vm dev-vm
 ```
 

@@ -1,14 +1,11 @@
-use std::process::Command;
 use anyhow::Result;
 use jiff::Zoned;
-use crate::config::{Config, check_git_repo, get_current_branch, get_project_name};
+use crate::config::{check_git_repo, get_current_branch, get_project_name};
 use crate::error::QSyncError;
+use crate::command_utils::execute_command;
 
 pub fn run(branch: Option<String>) -> Result<()> {
     check_git_repo()?;
-    
-    let config = Config::load()?;
-    let target_vm = config.get_target_vm()?;
     
     let branch_name = match branch {
         Some(b) => b,
@@ -17,9 +14,11 @@ pub fn run(branch: Option<String>) -> Result<()> {
     
     let project_name = get_project_name()?;
     let timestamp = Zoned::now().strftime("%Y-%m-%dT%H-%M-%S").to_string();
-    let bundle_filename = format!("{}_{}_{}.bundle", project_name, branch_name, timestamp);
+    // Sanitize branch name for filename (replace / with -)
+    let safe_branch_name = branch_name.replace('/', "-");
+    let bundle_filename = format!("{}_{}_{}.bundle", project_name, safe_branch_name, timestamp);
     
-    println!("Exporting branch '{}' to VM '{}'...", branch_name, target_vm);
+    println!("Exporting branch '{}'...", branch_name);
     
     // Get default branch and merge base
     let default_branch = get_default_branch()?;
@@ -29,24 +28,20 @@ pub fn run(branch: Option<String>) -> Result<()> {
     let bundle_range = format!("{}..{}", merge_base, branch_name);
     create_bundle(&bundle_filename, &bundle_range)?;
     
-    // Move bundle to target VM
-    move_bundle_to_vm(&bundle_filename, &target_vm)?;
+    // Move bundle (qvm-move will prompt for target VM)
+    move_bundle_to_vm(&bundle_filename)?;
     
-    println!("Successfully exported branch '{}' to '{}'", branch_name, target_vm);
+    println!("Successfully exported branch '{}'", branch_name);
     
     Ok(())
 }
 
 fn get_default_branch() -> Result<String> {
-    let output = Command::new("git")
-        .args(["symbolic-ref", "refs/remotes/origin/HEAD"])
-        .output()?;
+    let output = execute_command("git", &["symbolic-ref", "refs/remotes/origin/HEAD"])?;
     
     if !output.status.success() {
         // Fallback to main/master (remote first, then local)
-        let main_exists = Command::new("git")
-            .args(["rev-parse", "--verify", "refs/remotes/origin/main"])
-            .output()?
+        let main_exists = execute_command("git", &["rev-parse", "--verify", "refs/remotes/origin/main"])?
             .status
             .success();
         
@@ -54,9 +49,7 @@ fn get_default_branch() -> Result<String> {
             return Ok("origin/main".to_string());
         }
         
-        let master_exists = Command::new("git")
-            .args(["rev-parse", "--verify", "refs/remotes/origin/master"])
-            .output()?
+        let master_exists = execute_command("git", &["rev-parse", "--verify", "refs/remotes/origin/master"])?
             .status
             .success();
         
@@ -65,9 +58,7 @@ fn get_default_branch() -> Result<String> {
         }
         
         // Try local branches if no remote
-        let local_main_exists = Command::new("git")
-            .args(["rev-parse", "--verify", "refs/heads/main"])
-            .output()?
+        let local_main_exists = execute_command("git", &["rev-parse", "--verify", "refs/heads/main"])?
             .status
             .success();
         
@@ -75,9 +66,7 @@ fn get_default_branch() -> Result<String> {
             return Ok("main".to_string());
         }
         
-        let local_master_exists = Command::new("git")
-            .args(["rev-parse", "--verify", "refs/heads/master"])
-            .output()?
+        let local_master_exists = execute_command("git", &["rev-parse", "--verify", "refs/heads/master"])?
             .status
             .success();
         
@@ -103,9 +92,7 @@ fn get_default_branch() -> Result<String> {
 }
 
 fn get_merge_base(branch: &str, default_branch: &str) -> Result<String> {
-    let output = Command::new("git")
-        .args(["merge-base", branch, default_branch])
-        .output()?;
+    let output = execute_command("git", &["merge-base", branch, default_branch])?;
     
     if !output.status.success() {
         return Err(QSyncError::GitCommandFailed {
@@ -121,9 +108,7 @@ fn get_merge_base(branch: &str, default_branch: &str) -> Result<String> {
 }
 
 fn create_bundle(filename: &str, range: &str) -> Result<()> {
-    let output = Command::new("git")
-        .args(["bundle", "create", filename, range])
-        .output()?;
+    let output = execute_command("git", &["bundle", "create", filename, range])?;
     
     if !output.status.success() {
         let error_msg = String::from_utf8_lossy(&output.stderr);
@@ -135,10 +120,8 @@ fn create_bundle(filename: &str, range: &str) -> Result<()> {
     Ok(())
 }
 
-fn move_bundle_to_vm(filename: &str, target_vm: &str) -> Result<()> {
-    let output = Command::new("qvm-move")
-        .args([filename, target_vm])
-        .output()?;
+fn move_bundle_to_vm(filename: &str) -> Result<()> {
+    let output = execute_command("qvm-move", &[filename])?;
     
     if !output.status.success() {
         let error_msg = String::from_utf8_lossy(&output.stderr);

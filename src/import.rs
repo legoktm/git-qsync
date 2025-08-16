@@ -1,11 +1,11 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use anyhow::Result;
 use walkdir::WalkDir;
 use dialoguer::{Select, Confirm};
 use crate::config::{Config, check_git_repo, get_project_name};
 use crate::error::QSyncError;
+use crate::command_utils::execute_command;
 
 pub fn run(bundle_file: Option<String>) -> Result<()> {
     check_git_repo()?;
@@ -89,9 +89,7 @@ fn find_latest_bundle(dir_path: &str) -> Result<PathBuf> {
 }
 
 fn verify_bundle(bundle_path: &Path) -> Result<()> {
-    let output = Command::new("git")
-        .args(["bundle", "verify", bundle_path.to_str().unwrap()])
-        .output()?;
+    let output = execute_command("git", &["bundle", "verify", bundle_path.to_str().unwrap()])?;
     
     if !output.status.success() {
         let error_msg = String::from_utf8_lossy(&output.stderr);
@@ -105,9 +103,7 @@ fn verify_bundle(bundle_path: &Path) -> Result<()> {
 }
 
 fn extract_branch_name(bundle_path: &Path) -> Result<String> {
-    let output = Command::new("git")
-        .args(["bundle", "list-heads", bundle_path.to_str().unwrap()])
-        .output()?;
+    let output = execute_command("git", &["bundle", "list-heads", bundle_path.to_str().unwrap()])?;
     
     if !output.status.success() {
         return Err(QSyncError::GitCommandFailed {
@@ -139,9 +135,7 @@ fn extract_branch_name(bundle_path: &Path) -> Result<String> {
 }
 
 fn check_branch_exists(branch_name: &str) -> Result<bool> {
-    let output = Command::new("git")
-        .args(["rev-parse", "--verify", &format!("refs/heads/{}", branch_name)])
-        .output()?;
+    let output = execute_command("git", &["rev-parse", "--verify", &format!("refs/heads/{}", branch_name)])?;
     
     Ok(output.status.success())
 }
@@ -188,9 +182,7 @@ fn import_bundle(bundle_path: &Path, original_branch: &str, target_branch: &str)
     let bundle_str = bundle_path.to_str().unwrap();
     let refspec = format!("refs/heads/{}:refs/heads/{}", original_branch, target_branch);
     
-    let output = Command::new("git")
-        .args(["fetch", bundle_str, &refspec])
-        .output()?;
+    let output = execute_command("git", &["fetch", bundle_str, &refspec])?;
     
     if !output.status.success() {
         let error_msg = String::from_utf8_lossy(&output.stderr);
