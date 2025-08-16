@@ -1,0 +1,29 @@
+[package]
+name = "git-qsync"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "git-qsync"
+path = "src/main.rs"
+
+[[bin]]
+name = "git-qe"
+path = "src/git-qe.rs"
+
+[[bin]]
+name = "git-qi"
+path = "src/git-qi.rs"
+
+[dependencies]
+clap = { version = "4.0", features = ["derive"] }
+thiserror = "1.0"
+anyhow = "1.0"
+dialoguer = "0.11"
+walkdir = "2.0"
+chrono = { version = "0.4", features = ["serde"] }
+
+[dev-dependencies]
+tempfile = "3.0"
+assert_cmd = "2.0"
+predicates = "3.0"
