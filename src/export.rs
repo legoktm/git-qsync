@@ -1,9 +1,10 @@
 use crate::command_utils::execute_command;
 use crate::config::{check_git_repo, get_current_branch, get_project_name};
+use crate::system_config::SystemConfig;
 use anyhow::{bail, Context, Result};
 use jiff::Zoned;
 
-pub(crate) fn run(branch: Option<String>) -> Result<()> {
+pub(crate) fn run(branch: Option<String>, system_config: &SystemConfig) -> Result<()> {
     check_git_repo()?;
 
     let branch_name = match branch {
@@ -41,7 +42,7 @@ pub(crate) fn run(branch: Option<String>) -> Result<()> {
     create_bundle(&bundle_filename, &bundle_range)?;
 
     // Move bundle (qvm-move will prompt for target VM)
-    move_bundle_to_vm(&bundle_filename)?;
+    move_bundle_to_vm(&bundle_filename, system_config)?;
 
     println!("Successfully exported branch '{}'", branch_name);
 
@@ -137,8 +138,8 @@ fn create_bundle(filename: &str, range: &str) -> Result<()> {
     Ok(())
 }
 
-fn move_bundle_to_vm(filename: &str) -> Result<()> {
-    let output = execute_command("qvm-move", &[filename])?;
+fn move_bundle_to_vm(filename: &str, system_config: &SystemConfig) -> Result<()> {
+    let output = execute_command(&system_config.qvm_move_path, &[filename])?;
 
     if !output.status.success() {
         let error_msg = String::from_utf8_lossy(&output.stderr);

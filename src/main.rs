@@ -5,8 +5,10 @@ pub(crate) mod command_utils;
 pub(crate) mod config;
 pub(crate) mod export;
 pub(crate) mod import;
+pub(crate) mod system_config;
 
 use crate::command_utils::execute_command;
+use crate::system_config::SystemConfig;
 
 #[derive(Parser)]
 #[command(name = "git-qsync")]
@@ -37,9 +39,11 @@ fn main() -> Result<()> {
 
     let cli = Cli::parse();
 
+    let system_config = SystemConfig::from_env();
+
     match cli.command {
         Commands::Export { branch } => {
-            export::run(branch)?;
+            export::run(branch, &system_config)?;
         }
         Commands::Import { bundle_file } => {
             import::run(bundle_file)?;

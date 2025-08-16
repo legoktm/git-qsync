@@ -95,27 +95,13 @@ fn test_export_without_qvm_move() {
 
     let mut cmd = Command::cargo_bin("git-qsync").unwrap();
     cmd.current_dir(temp_dir.path());
+    cmd.env("QVM_MOVE_PATH", "echo");  // Use echo as no-op command
     cmd.args(["export"]);
 
-    // On Qubes systems where qvm-move is available, this should succeed
-    // On other systems, it should fail with qvm-move or bundle creation error
-    let result = cmd.assert();
-    if std::process::Command::new("qvm-move")
-        .arg("--help")
-        .output()
-        .is_ok()
-    {
-        // qvm-move is available, expect success
-        result
-            .success()
-            .stdout(predicate::str::contains("commits:"));
-    } else {
-        // qvm-move not available, expect failure
-        result.failure().stderr(
-            predicate::str::contains("qvm-move")
-                .or(predicate::str::contains("Bundle creation failed")),
-        );
-    }
+    // Using echo as a no-op command should always succeed
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("commits:"));
 }
 
 #[test]
@@ -132,33 +118,19 @@ fn test_import_missing_config() {
 }
 
 #[test]
-fn test_export_with_no_qvm_move() {
+fn test_export_with_echo_qvm_move() {
     let temp_dir = TempDir::new().unwrap();
     setup_test_git_repo(temp_dir.path());
 
     let mut cmd = Command::cargo_bin("git-qsync").unwrap();
     cmd.current_dir(temp_dir.path());
+    cmd.env("QVM_MOVE_PATH", "echo");  // Use echo as no-op command
     cmd.args(["export"]);
 
-    // On Qubes systems where qvm-move is available, this should succeed
-    // On other systems, it should fail with qvm-move or bundle creation error
-    let result = cmd.assert();
-    if std::process::Command::new("qvm-move")
-        .arg("--help")
-        .output()
-        .is_ok()
-    {
-        // qvm-move is available, expect success
-        result
-            .success()
-            .stdout(predicate::str::contains("commits:"));
-    } else {
-        // qvm-move not available, expect failure
-        result.failure().stderr(
-            predicate::str::contains("qvm-move")
-                .or(predicate::str::contains("Bundle creation failed")),
-        );
-    }
+    // Using echo as a no-op command should always succeed
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("commits:"));
 }
 
 #[test]
