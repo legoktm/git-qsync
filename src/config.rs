@@ -1,4 +1,3 @@
-use crate::command_utils::execute_command;
 use anyhow::{bail, Context, Result};
 
 pub(crate) struct Config {
@@ -20,13 +19,19 @@ impl Config {
 }
 
 fn get_git_config(key: &str) -> Result<Option<String>> {
-    let output = execute_command("git", &["config", "--get", key])?;
+    let repo = gix::discover(".")?;
+    let config = repo.config_snapshot();
 
-    if output.status.success() {
-        let value = String::from_utf8(output.stdout)?.trim().to_string();
-        Ok(if value.is_empty() { None } else { Some(value) })
-    } else {
-        Ok(None)
+    match config.string(key) {
+        Some(value) => {
+            let value_str = value.to_string();
+            Ok(if value_str.is_empty() {
+                None
+            } else {
+                Some(value_str)
+            })
+        }
+        None => Ok(None), // Key not found
     }
 }
 
@@ -41,23 +46,20 @@ pub(crate) fn get_project_name() -> Result<String> {
 }
 
 pub(crate) fn get_current_branch() -> Result<String> {
-    let output = execute_command("git", &["rev-parse", "--abbrev-ref", "HEAD"])?;
+    let repo = gix::discover(".")?;
+    let head_ref = repo.head_ref()?;
 
-    if !output.status.success() {
-        bail!("Not in a git repository");
+    match head_ref {
+        Some(reference) => {
+            let name = reference.name().shorten().to_string();
+            Ok(name)
+        }
+        None => bail!("HEAD is detached or repository is in an invalid state"),
     }
-
-    let branch = String::from_utf8(output.stdout)?.trim().to_string();
-
-    Ok(branch)
 }
 
 pub(crate) fn check_git_repo() -> Result<()> {
-    let output = execute_command("git", &["rev-parse", "--git-dir"])?;
-
-    if !output.status.success() {
-        bail!("Not in a git repository");
-    }
-
-    Ok(())
+    gix::discover(".")
+        .map(|_| ())
+        .context("Not in a git repository")
 }

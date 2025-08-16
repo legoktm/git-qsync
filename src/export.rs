@@ -1,6 +1,6 @@
 use crate::command_utils::execute_command;
 use crate::config::{check_git_repo, get_current_branch, get_project_name};
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use jiff::Zoned;
 
 pub(crate) fn run(branch: Option<String>) -> Result<()> {
@@ -59,45 +59,23 @@ fn get_default_branch() -> Result<String> {
     let output = execute_command("git", &["symbolic-ref", "refs/remotes/origin/HEAD"])?;
 
     if !output.status.success() {
-        // Fallback to main/master (remote first, then local)
-        let main_exists = execute_command(
-            "git",
-            &["rev-parse", "--verify", "refs/remotes/origin/main"],
-        )?
-        .status
-        .success();
+        let repo = gix::discover(".")?;
 
-        if main_exists {
+        // Fallback to main/master (remote first, then local)
+        if repo.find_reference("refs/remotes/origin/main").is_ok() {
             return Ok("origin/main".to_string());
         }
 
-        let master_exists = execute_command(
-            "git",
-            &["rev-parse", "--verify", "refs/remotes/origin/master"],
-        )?
-        .status
-        .success();
-
-        if master_exists {
+        if repo.find_reference("refs/remotes/origin/master").is_ok() {
             return Ok("origin/master".to_string());
         }
 
         // Try local branches if no remote
-        let local_main_exists =
-            execute_command("git", &["rev-parse", "--verify", "refs/heads/main"])?
-                .status
-                .success();
-
-        if local_main_exists {
+        if repo.find_reference("refs/heads/main").is_ok() {
             return Ok("main".to_string());
         }
 
-        let local_master_exists =
-            execute_command("git", &["rev-parse", "--verify", "refs/heads/master"])?
-                .status
-                .success();
-
-        if local_master_exists {
+        if repo.find_reference("refs/heads/master").is_ok() {
             return Ok("master".to_string());
         }
 
@@ -115,19 +93,32 @@ fn get_default_branch() -> Result<String> {
 }
 
 fn get_merge_base(branch: &str, default_branch: &str) -> Result<String> {
-    let output = execute_command("git", &["merge-base", branch, default_branch])?;
+    let repo = gix::discover(".")?;
 
-    if !output.status.success() {
-        bail!(
-            "Cannot find merge base between {} and {}",
-            branch,
-            default_branch
-        );
-    }
+    // Find the commit objects for both branches
+    let branch_commit = repo
+        .rev_parse_single(branch)?
+        .object()?
+        .try_into_commit()
+        .map_err(|_| anyhow::anyhow!("Branch {} does not point to a commit", branch))?;
 
-    let merge_base = String::from_utf8(output.stdout)?.trim().to_string();
+    let default_commit = repo
+        .rev_parse_single(default_branch)?
+        .object()?
+        .try_into_commit()
+        .map_err(|_| anyhow::anyhow!("Branch {} does not point to a commit", default_branch))?;
 
-    Ok(merge_base)
+    // Find merge base - repo.merge_base returns a single gix::Id, not a Vec
+    let merge_base = repo
+        .merge_base(branch_commit.id(), default_commit.id())
+        .with_context(|| {
+            format!(
+                "Cannot find merge base between {} and {}",
+                branch, default_branch
+            )
+        })?;
+
+    Ok(merge_base.to_string())
 }
 
 fn create_bundle(filename: &str, range: &str) -> Result<()> {
