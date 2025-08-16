@@ -55,18 +55,14 @@ fn main() -> Result<()> {
 fn setup_git_aliases() -> Result<()> {
     println!("Setting up git aliases for qsync shortcuts...");
     
-    // Get the path to the current binary
-    let current_exe = std::env::current_exe()?;
-    let exe_path = current_exe.to_string_lossy();
-    
     // Set up git qe alias
-    let qe_alias = format!("!{} export", exe_path);
-    execute_command("git", &["config", "--global", "alias.qe", &qe_alias])?;
+    let qe_alias = "!git qsync export";
+    execute_command("git", &["config", "--global", "alias.qe", qe_alias])?;
     println!("✓ Set up 'git qe' alias");
     
     // Set up git qi alias  
-    let qi_alias = format!("!{} import", exe_path);
-    execute_command("git", &["config", "--global", "alias.qi", &qi_alias])?;
+    let qi_alias = "!git qsync import";
+    execute_command("git", &["config", "--global", "alias.qi", qi_alias])?;
     println!("✓ Set up 'git qi' alias");
     
     println!();
