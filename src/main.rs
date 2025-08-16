@@ -1,10 +1,10 @@
-use clap::{Parser, Subcommand};
 use anyhow::Result;
+use clap::{Parser, Subcommand};
 
+pub(crate) mod command_utils;
 pub(crate) mod config;
 pub(crate) mod export;
 pub(crate) mod import;
-pub(crate) mod command_utils;
 
 use crate::command_utils::execute_command;
 
@@ -34,9 +34,9 @@ enum Commands {
 
 fn main() -> Result<()> {
     env_logger::init();
-    
+
     let cli = Cli::parse();
-    
+
     match cli.command {
         Commands::Export { branch } => {
             export::run(branch)?;
@@ -48,28 +48,28 @@ fn main() -> Result<()> {
             setup_git_aliases()?;
         }
     }
-    
+
     Ok(())
 }
 
 fn setup_git_aliases() -> Result<()> {
     println!("Setting up git aliases for qsync shortcuts...");
-    
+
     // Set up git qe alias
     let qe_alias = "!git qsync export";
     execute_command("git", &["config", "--global", "alias.qe", qe_alias])?;
     println!("✓ Set up 'git qe' alias");
-    
-    // Set up git qi alias  
+
+    // Set up git qi alias
     let qi_alias = "!git qsync import";
     execute_command("git", &["config", "--global", "alias.qi", qi_alias])?;
     println!("✓ Set up 'git qi' alias");
-    
+
     println!();
     println!("Git aliases configured successfully!");
     println!("You can now use:");
     println!("  git qe [branch]    # Export branch (same as git qsync export)");
     println!("  git qi [bundle]    # Import bundle (same as git qsync import)");
-    
+
     Ok(())
 }
