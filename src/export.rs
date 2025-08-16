@@ -1,6 +1,6 @@
 use std::process::Command;
 use anyhow::Result;
-use chrono::Utc;
+use jiff::Zoned;
 use crate::config::{Config, check_git_repo, get_current_branch, get_project_name};
 use crate::error::QSyncError;
 
@@ -16,7 +16,7 @@ pub fn run(branch: Option<String>) -> Result<()> {
     };
     
     let project_name = get_project_name()?;
-    let timestamp = Utc::now().format("%Y-%m-%dT%H-%M-%S");
+    let timestamp = Zoned::now().strftime("%Y-%m-%dT%H-%M-%S").to_string();
     let bundle_filename = format!("{}_{}_{}.bundle", project_name, branch_name, timestamp);
     
     println!("Exporting branch '{}' to VM '{}'...", branch_name, target_vm);
