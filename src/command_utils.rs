@@ -3,7 +3,7 @@ use log::debug;
 use anyhow::Result;
 
 /// Execute a command with debug logging
-pub fn execute_command(cmd: &str, args: &[&str]) -> Result<Output> {
+pub(crate) fn execute_command(cmd: &str, args: &[&str]) -> Result<Output> {
     debug!("Executing command: {} {}", cmd, args.join(" "));
     
     let output = Command::new(cmd)

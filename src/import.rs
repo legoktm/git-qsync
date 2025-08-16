@@ -6,7 +6,7 @@ use dialoguer::{Select, Confirm};
 use crate::config::{Config, check_git_repo, get_project_name};
 use crate::command_utils::execute_command;
 
-pub fn run(bundle_file: Option<String>) -> Result<()> {
+pub(crate) fn run(bundle_file: Option<String>) -> Result<()> {
     check_git_repo()?;
     
     let config = Config::load()?;

@@ -3,7 +3,7 @@ use jiff::Zoned;
 use crate::config::{check_git_repo, get_current_branch, get_project_name};
 use crate::command_utils::execute_command;
 
-pub fn run(branch: Option<String>) -> Result<()> {
+pub(crate) fn run(branch: Option<String>) -> Result<()> {
     check_git_repo()?;
     
     let branch_name = match branch {

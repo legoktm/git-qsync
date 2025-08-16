@@ -145,6 +145,15 @@ fn test_alias_commands() {
 }
 
 #[test]
+fn test_init_command() {
+    let mut cmd = Command::cargo_bin("git-qsync").unwrap();
+    cmd.args(["init"]);
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("Git aliases configured successfully!"));
+}
+
+#[test]
 fn test_invalid_subcommand() {
     let mut cmd = Command::cargo_bin("git-qsync").unwrap();
     cmd.args(["invalid"]);

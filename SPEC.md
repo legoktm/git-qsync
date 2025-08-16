@@ -5,16 +5,25 @@ A CLI tool for transferring git branches between Qubes VMs using git bundles and
 
 ## Command Interface
 
-### Export Command: `git qsync export` (alias: `git qe`)
-**Usage**: `git qe [branch]`
+### Setup: `git qsync init`
+**Usage**: `git qsync init`
+
+**Behavior**:
+- Sets up global git aliases for `git qe` and `git qi` shortcuts
+- Configures `git qe` to call `git qsync export`
+- Configures `git qi` to call `git qsync import`
+- One-time setup required before using shortcuts
+
+### Export Command: `git qsync export` (shortcut: `git qe`)
+**Usage**: `git qe [branch]` or `git qsync export [branch]`
 
 **Behavior**:
 - Creates git bundle of specified branch (defaults to current branch)
 - Generates bundle filename: `{project-name}_{branch-name}_{timestamp}.bundle`
 - Executes `qvm-move bundle-file` (user will be prompted to select target VM)
 
-### Import Command: `git qsync import` (alias: `git qi`)
-**Usage**: `git qi [bundle-file]`
+### Import Command: `git qsync import` (shortcut: `git qi`)
+**Usage**: `git qi [bundle-file]` or `git qsync import [bundle-file]`
 
 **Behavior**:
 - Scans `~/QubesIncoming/{source-vm}/{project-name}/` for `.bundle` files
@@ -29,10 +38,17 @@ A CLI tool for transferring git branches between Qubes VMs using git bundles and
 ```ini
 [qsync]
     source-vm = dev-vm    # Required for import
+    
+[alias]
+    qe = !git-qsync export   # Set up by 'git qsync init'
+    qi = !git-qsync import   # Set up by 'git qsync init'
 ```
 
-**Access via git config**:
+**Setup and configuration**:
 ```bash
+# One-time setup to enable shortcuts
+git qsync init
+
 # Set default source VM for imports
 git config --global qsync.source-vm dev-vm
 ```

@@ -1,12 +1,12 @@
 use anyhow::{Result, Context, bail};
 use crate::command_utils::execute_command;
 
-pub struct Config {
-    pub source_vm: Option<String>,
+pub(crate) struct Config {
+    pub(crate) source_vm: Option<String>,
 }
 
 impl Config {
-    pub fn load() -> Result<Self> {
+    pub(crate) fn load() -> Result<Self> {
         let source_vm = get_git_config("qsync.source-vm")?;
         
         Ok(Config {
@@ -14,7 +14,7 @@ impl Config {
         })
     }
     
-    pub fn get_source_vm(&self) -> Result<String> {
+    pub(crate) fn get_source_vm(&self) -> Result<String> {
         self.source_vm
             .clone()
             .context("Configuration missing: qsync.source-vm")
@@ -34,7 +34,7 @@ fn get_git_config(key: &str) -> Result<Option<String>> {
     }
 }
 
-pub fn get_project_name() -> Result<String> {
+pub(crate) fn get_project_name() -> Result<String> {
     let current_dir = std::env::current_dir()?;
     let project_name = current_dir
         .file_name()
@@ -44,7 +44,7 @@ pub fn get_project_name() -> Result<String> {
     Ok(project_name.to_string())
 }
 
-pub fn get_current_branch() -> Result<String> {
+pub(crate) fn get_current_branch() -> Result<String> {
     let output = execute_command("git", &["rev-parse", "--abbrev-ref", "HEAD"])?;
     
     if !output.status.success() {
@@ -58,7 +58,7 @@ pub fn get_current_branch() -> Result<String> {
     Ok(branch)
 }
 
-pub fn check_git_repo() -> Result<()> {
+pub(crate) fn check_git_repo() -> Result<()> {
     let output = execute_command("git", &["rev-parse", "--git-dir"])?;
     
     if !output.status.success() {
