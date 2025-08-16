@@ -3,27 +3,16 @@ use crate::error::QSyncError;
 use crate::command_utils::execute_command;
 
 pub struct Config {
-    pub target_vm: Option<String>,
     pub source_vm: Option<String>,
 }
 
 impl Config {
     pub fn load() -> Result<Self> {
-        let target_vm = get_git_config("qsync.target-vm")?;
         let source_vm = get_git_config("qsync.source-vm")?;
         
         Ok(Config {
-            target_vm,
             source_vm,
         })
-    }
-    
-    pub fn get_target_vm(&self) -> Result<String> {
-        self.target_vm
-            .clone()
-            .ok_or_else(|| QSyncError::ConfigMissing { 
-                key: "qsync.target-vm".to_string() 
-            }.into())
     }
     
     pub fn get_source_vm(&self) -> Result<String> {

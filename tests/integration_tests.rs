@@ -89,7 +89,7 @@ fn test_import_outside_git_repo() {
 }
 
 #[test]
-fn test_export_missing_config() {
+fn test_export_without_qvm_move() {
     let temp_dir = TempDir::new().unwrap();
     setup_test_git_repo(temp_dir.path());
     
@@ -98,7 +98,7 @@ fn test_export_missing_config() {
     cmd.args(["export"]);
     cmd.assert()
         .failure()
-        .stderr(predicate::str::contains("Configuration missing: qsync.target-vm"));
+        .stderr(predicate::str::contains("qvm-move").or(predicate::str::contains("Bundle creation failed")));
 }
 
 #[test]
@@ -115,16 +115,9 @@ fn test_import_missing_config() {
 }
 
 #[test]
-fn test_export_with_config_but_no_qvm_move() {
+fn test_export_with_no_qvm_move() {
     let temp_dir = TempDir::new().unwrap();
     setup_test_git_repo(temp_dir.path());
-    
-    // Set up git config
-    StdCommand::new("git")
-        .args(["config", "qsync.target-vm", "test-vm"])
-        .current_dir(temp_dir.path())
-        .output()
-        .expect("Failed to set git config");
     
     let mut cmd = Command::cargo_bin("git-qsync").unwrap();
     cmd.current_dir(temp_dir.path());
