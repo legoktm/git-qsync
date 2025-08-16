@@ -12,6 +12,7 @@ jiff = "0.2"
 log = "0.4"
 env_logger = "0.11"
 gix = { version = "0.73", default-features = false, features = ["revision"] }
+tempfile = "3.0"
 
 [dev-dependencies]
 tempfile = "3.0"

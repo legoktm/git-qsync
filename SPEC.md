@@ -20,13 +20,14 @@ A CLI tool for transferring git branches between Qubes VMs using git bundles and
 **Behavior**:
 - Creates git bundle of specified branch (defaults to current branch)
 - Generates bundle filename: `{project-name}_{branch-name}_{timestamp}.bundle`
-- Executes `qvm-move bundle-file` (user will be prompted to select target VM)
+- Creates directory structure `$tmpdir/git-qsync/{project-name}/`
+- Executes `qvm-move $tmpdir/git-qsync` (user will be prompted to select target VM)
 
 ### Import Command: `git qsync import` (shortcut: `git qi`)
 **Usage**: `git qi [bundle-file]` or `git qsync import [bundle-file]`
 
 **Behavior**:
-- Scans `~/QubesIncoming/{source-vm}/{project-name}/` for `.bundle` files
+- Scans `~/QubesIncoming/{source-vm}/git-qsync/{project-name}/` for `.bundle` files
 - Selects most recent bundle (by timestamp)
 - Extracts branch name from bundle metadata
 - Prompts for import confirmation with branch conflict warnings
@@ -124,7 +125,7 @@ git bundle verify bundle.bundle HEAD
 
 ## Import Behavior
 - **Repository validation**: Error if not in git repository
-- **Bundle location**: `~/QubesIncoming/{source-vm}/{project-name}/`
+- **Bundle location**: `~/QubesIncoming/{source-vm}/git-qsync/{project-name}/`
 - **Bundle selection**: Most recent `.bundle` file by timestamp
 - **Verification errors**: Pass through git's native error messages
 - **Missing bundles**: Emit clear error message
@@ -135,7 +136,7 @@ git bundle verify bundle.bundle HEAD
 Error: Not in a git repository
 
 # No bundles found  
-Error: No bundle files found in ~/QubesIncoming/dev-vm/myproject/
+Error: No bundle files found in ~/QubesIncoming/dev-vm/git-qsync/myproject/
 
 # Bundle verification (pass through git output)
 Error: Bundle verification failed:

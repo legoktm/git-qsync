@@ -3,6 +3,8 @@ use crate::config::{check_git_repo, get_current_branch, get_project_name};
 use crate::system_config::SystemConfig;
 use anyhow::{bail, Context, Result};
 use jiff::Zoned;
+use std::path::Path;
+use tempfile::TempDir;
 
 pub(crate) fn run(branch: Option<String>, system_config: &SystemConfig) -> Result<()> {
     check_git_repo()?;
@@ -17,6 +19,16 @@ pub(crate) fn run(branch: Option<String>, system_config: &SystemConfig) -> Resul
     // Sanitize branch name for filename (replace / with -)
     let safe_branch_name = branch_name.replace('/', "-");
     let bundle_filename = format!("{}_{}_{}.bundle", project_name, safe_branch_name, timestamp);
+
+    // Create temporary directory structure: $tmpdir/git-qsync/$project/
+    let temp_dir = TempDir::new().with_context(|| "Failed to create temporary directory")?;
+    let git_qsync_dir = temp_dir.path().join("git-qsync");
+    let project_dir = git_qsync_dir.join(&project_name);
+    let bundle_path = project_dir.join(&bundle_filename);
+
+    // Ensure the directory structure exists
+    std::fs::create_dir_all(&project_dir)
+        .with_context(|| format!("Failed to create directory: {}", project_dir.display()))?;
 
     // Get default branch and merge base
     let default_branch = get_default_branch()?;
@@ -39,10 +51,10 @@ pub(crate) fn run(branch: Option<String>, system_config: &SystemConfig) -> Resul
         );
         range
     };
-    create_bundle(&bundle_filename, &bundle_range)?;
+    create_bundle(&bundle_path, &bundle_range)?;
 
-    // Move bundle (qvm-move will prompt for target VM)
-    move_bundle_to_vm(&bundle_filename, system_config)?;
+    // Move entire git-qsync directory (qvm-move will prompt for target VM)
+    move_bundle_to_vm(&git_qsync_dir, system_config)?;
 
     println!("Successfully exported branch '{}'", branch_name);
 
@@ -127,8 +139,11 @@ fn get_merge_base(branch: &str, default_branch: &str) -> Result<String> {
     Ok(merge_base.to_string())
 }
 
-fn create_bundle(filename: &str, range: &str) -> Result<()> {
-    let output = execute_command("git", &["bundle", "create", filename, range])?;
+fn create_bundle(bundle_path: &Path, range: &str) -> Result<()> {
+    let bundle_str = bundle_path
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("Invalid bundle path"))?;
+    let output = execute_command("git", &["bundle", "create", bundle_str, range])?;
 
     if !output.status.success() {
         let error_msg = String::from_utf8_lossy(&output.stderr);
@@ -138,8 +153,11 @@ fn create_bundle(filename: &str, range: &str) -> Result<()> {
     Ok(())
 }
 
-fn move_bundle_to_vm(filename: &str, system_config: &SystemConfig) -> Result<()> {
-    let output = execute_command(&system_config.qvm_move_path, &[filename])?;
+fn move_bundle_to_vm(git_qsync_dir: &Path, system_config: &SystemConfig) -> Result<()> {
+    let dir_str = git_qsync_dir
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("Invalid directory path"))?;
+    let output = execute_command(&system_config.qvm_move_path, &[dir_str])?;
 
     if !output.status.success() {
         let error_msg = String::from_utf8_lossy(&output.stderr);

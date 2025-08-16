@@ -95,7 +95,7 @@ fn test_export_without_qvm_move() {
 
     let mut cmd = Command::cargo_bin("git-qsync").unwrap();
     cmd.current_dir(temp_dir.path());
-    cmd.env("QVM_MOVE_PATH", "echo");  // Use echo as no-op command
+    cmd.env("QVM_MOVE_PATH", "echo"); // Use echo as no-op command
     cmd.args(["export"]);
 
     // Using echo as a no-op command should always succeed
@@ -124,7 +124,7 @@ fn test_export_with_echo_qvm_move() {
 
     let mut cmd = Command::cargo_bin("git-qsync").unwrap();
     cmd.current_dir(temp_dir.path());
-    cmd.env("QVM_MOVE_PATH", "echo");  // Use echo as no-op command
+    cmd.env("QVM_MOVE_PATH", "echo"); // Use echo as no-op command
     cmd.args(["export"]);
 
     // Using echo as a no-op command should always succeed

@@ -5,9 +5,9 @@ pub struct SystemConfig {
 
 impl SystemConfig {
     pub fn from_env() -> Self {
-        let qvm_move_path = std::env::var("QVM_MOVE_PATH")
-            .unwrap_or_else(|_| "/usr/bin/qvm-move".to_string());
-        
+        let qvm_move_path =
+            std::env::var("QVM_MOVE_PATH").unwrap_or_else(|_| "/usr/bin/qvm-move".to_string());
+
         Self { qvm_move_path }
     }
 }

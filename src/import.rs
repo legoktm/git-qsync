@@ -17,7 +17,7 @@ pub(crate) fn run(bundle_file: Option<String>) -> Result<()> {
         Some(file) => PathBuf::from(file),
         None => {
             let qubes_incoming_path = format!(
-                "{}/QubesIncoming/{}/{}",
+                "{}/QubesIncoming/{}/git-qsync/{}",
                 std::env::var("HOME")?,
                 source_vm,
                 project_name
