@@ -21,10 +21,15 @@ pub(crate) fn run(branch: Option<String>) -> Result<()> {
     
     // Get default branch and merge base
     let default_branch = get_default_branch()?;
-    let merge_base = get_merge_base(&branch_name, &default_branch)?;
     
-    // Create bundle
-    let bundle_range = format!("{}..{}", merge_base, branch_name);
+    // Create bundle range - for default branch, export entire history
+    let bundle_range = if is_default_branch(&branch_name, &default_branch)? {
+        println!("Exporting entire branch history for default branch '{}'", branch_name);
+        branch_name.clone()
+    } else {
+        let merge_base = get_merge_base(&branch_name, &default_branch)?;
+        format!("{}..{}", merge_base, branch_name)
+    };
     create_bundle(&bundle_filename, &bundle_range)?;
     
     // Move bundle (qvm-move will prompt for target VM)
@@ -33,6 +38,18 @@ pub(crate) fn run(branch: Option<String>) -> Result<()> {
     println!("Successfully exported branch '{}'", branch_name);
     
     Ok(())
+}
+
+fn is_default_branch(branch: &str, default_branch: &str) -> Result<bool> {
+    // Normalize branch names for comparison
+    let normalized_branch = branch.strip_prefix("refs/heads/").unwrap_or(branch);
+    let normalized_default = default_branch
+        .strip_prefix("origin/")
+        .or_else(|| default_branch.strip_prefix("refs/remotes/origin/"))
+        .or_else(|| default_branch.strip_prefix("refs/heads/"))
+        .unwrap_or(default_branch);
+    
+    Ok(normalized_branch == normalized_default)
 }
 
 fn get_default_branch() -> Result<String> {

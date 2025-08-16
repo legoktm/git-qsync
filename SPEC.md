@@ -60,12 +60,18 @@ PROJECT_NAME=$(basename "$(pwd)")
 ```
 
 ## Bundle Strategy
-**Export**: Bundle from merge-base with default HEAD branch
+**Export**: 
+- For feature branches: Bundle from merge-base with default HEAD branch
+- For default branch (main/master): Bundle entire branch history
+
 ```bash
-# Find default branch and fork point
+# For feature branches - find default branch and fork point
 DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD | sed 's@^refs/remotes/origin/@@')
 MERGE_BASE=$(git merge-base HEAD $DEFAULT_BRANCH)
 git bundle create bundle.bundle $MERGE_BASE..HEAD
+
+# For default branch - export entire history
+git bundle create bundle.bundle HEAD
 ```
 
 ## Bundle Naming Convention
