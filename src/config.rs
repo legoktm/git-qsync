@@ -1,5 +1,4 @@
-use anyhow::Result;
-use crate::error::QSyncError;
+use anyhow::{Result, Context, bail};
 use crate::command_utils::execute_command;
 
 pub struct Config {
@@ -18,9 +17,7 @@ impl Config {
     pub fn get_source_vm(&self) -> Result<String> {
         self.source_vm
             .clone()
-            .ok_or_else(|| QSyncError::ConfigMissing { 
-                key: "qsync.source-vm".to_string() 
-            }.into())
+            .context("Configuration missing: qsync.source-vm")
     }
 }
 
@@ -42,10 +39,7 @@ pub fn get_project_name() -> Result<String> {
     let project_name = current_dir
         .file_name()
         .and_then(|name| name.to_str())
-        .ok_or_else(|| QSyncError::Io(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            "Cannot determine project name from current directory"
-        )))?;
+        .context("Cannot determine project name from current directory")?;
     
     Ok(project_name.to_string())
 }
@@ -54,7 +48,7 @@ pub fn get_current_branch() -> Result<String> {
     let output = execute_command("git", &["rev-parse", "--abbrev-ref", "HEAD"])?;
     
     if !output.status.success() {
-        return Err(QSyncError::NotInGitRepo.into());
+        bail!("Not in a git repository");
     }
     
     let branch = String::from_utf8(output.stdout)?
@@ -68,7 +62,7 @@ pub fn check_git_repo() -> Result<()> {
     let output = execute_command("git", &["rev-parse", "--git-dir"])?;
     
     if !output.status.success() {
-        return Err(QSyncError::NotInGitRepo.into());
+        bail!("Not in a git repository");
     }
     
     Ok(())

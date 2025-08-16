@@ -5,7 +5,6 @@ use std::path::Path;
 mod config;
 mod export;
 mod import;
-mod error;
 mod command_utils;
 
 #[derive(Parser)]

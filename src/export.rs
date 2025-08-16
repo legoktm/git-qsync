@@ -1,7 +1,6 @@
-use anyhow::Result;
+use anyhow::{Result, bail};
 use jiff::Zoned;
 use crate::config::{check_git_repo, get_current_branch, get_project_name};
-use crate::error::QSyncError;
 use crate::command_utils::execute_command;
 
 pub fn run(branch: Option<String>) -> Result<()> {
@@ -74,9 +73,7 @@ fn get_default_branch() -> Result<String> {
             return Ok("master".to_string());
         }
         
-        return Err(QSyncError::GitCommandFailed {
-            message: "Cannot determine default branch".to_string()
-        }.into());
+        bail!("Cannot determine default branch");
     }
     
     let default_ref = String::from_utf8(output.stdout)?
@@ -95,9 +92,7 @@ fn get_merge_base(branch: &str, default_branch: &str) -> Result<String> {
     let output = execute_command("git", &["merge-base", branch, default_branch])?;
     
     if !output.status.success() {
-        return Err(QSyncError::GitCommandFailed {
-            message: format!("Cannot find merge base between {} and {}", branch, default_branch)
-        }.into());
+        bail!("Cannot find merge base between {} and {}", branch, default_branch);
     }
     
     let merge_base = String::from_utf8(output.stdout)?
@@ -112,9 +107,7 @@ fn create_bundle(filename: &str, range: &str) -> Result<()> {
     
     if !output.status.success() {
         let error_msg = String::from_utf8_lossy(&output.stderr);
-        return Err(QSyncError::GitCommandFailed {
-            message: format!("Bundle creation failed: {}", error_msg)
-        }.into());
+        bail!("Git command failed: Bundle creation failed: {}", error_msg);
     }
     
     Ok(())
@@ -125,9 +118,7 @@ fn move_bundle_to_vm(filename: &str) -> Result<()> {
     
     if !output.status.success() {
         let error_msg = String::from_utf8_lossy(&output.stderr);
-        return Err(QSyncError::GitCommandFailed {
-            message: format!("qvm-move failed: {}", error_msg)
-        }.into());
+        bail!("Git command failed: qvm-move failed: {}", error_msg);
     }
     
     Ok(())

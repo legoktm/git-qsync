@@ -1,10 +1,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use anyhow::Result;
+use anyhow::{Result, Context, bail};
 use walkdir::WalkDir;
 use dialoguer::{Select, Confirm};
 use crate::config::{Config, check_git_repo, get_project_name};
-use crate::error::QSyncError;
 use crate::command_utils::execute_command;
 
 pub fn run(bundle_file: Option<String>) -> Result<()> {
@@ -53,9 +52,7 @@ fn find_latest_bundle(dir_path: &str) -> Result<PathBuf> {
     let path = Path::new(dir_path);
     
     if !path.exists() {
-        return Err(QSyncError::NoBundlesFound { 
-            path: dir_path.to_string() 
-        }.into());
+        bail!("No bundle files found in {}", dir_path);
     }
     
     let mut bundles = Vec::new();
@@ -72,9 +69,7 @@ fn find_latest_bundle(dir_path: &str) -> Result<PathBuf> {
     }
     
     if bundles.is_empty() {
-        return Err(QSyncError::NoBundlesFound { 
-            path: dir_path.to_string() 
-        }.into());
+        bail!("No bundle files found in {}", dir_path);
     }
     
     // Sort by modification time (newest first)
@@ -95,7 +90,7 @@ fn verify_bundle(bundle_path: &Path) -> Result<()> {
         let error_msg = String::from_utf8_lossy(&output.stderr);
         eprintln!("Bundle verification failed:");
         eprintln!("{}", error_msg);
-        return Err(QSyncError::BundleVerificationFailed.into());
+        bail!("Bundle verification failed");
     }
     
     println!("Bundle verification successful");
@@ -106,26 +101,20 @@ fn extract_branch_name(bundle_path: &Path) -> Result<String> {
     let output = execute_command("git", &["bundle", "list-heads", bundle_path.to_str().unwrap()])?;
     
     if !output.status.success() {
-        return Err(QSyncError::GitCommandFailed {
-            message: "Failed to list bundle heads".to_string()
-        }.into());
+        bail!("Git command failed: Failed to list bundle heads");
     }
     
     let output_str = String::from_utf8(output.stdout)?;
     let first_line = output_str
         .lines()
         .next()
-        .ok_or_else(|| QSyncError::GitCommandFailed {
-            message: "Bundle contains no refs".to_string()
-        })?;
+        .context("Git command failed: Bundle contains no refs")?;
     
     // Parse line like: "abc123... refs/heads/feature-branch"
     let branch_ref = first_line
         .split_whitespace()
         .nth(1)
-        .ok_or_else(|| QSyncError::GitCommandFailed {
-            message: "Invalid bundle head format".to_string()
-        })?;
+        .context("Git command failed: Invalid bundle head format")?;
     
     let branch_name = branch_ref
         .strip_prefix("refs/heads/")
@@ -165,7 +154,7 @@ fn handle_branch_conflict(branch_name: &str) -> Result<String> {
             if confirm {
                 Ok(branch_name.to_string())
             } else {
-                Err(QSyncError::Cancelled.into())
+                bail!("Cancelled by user")
             }
         }
         1 => {
@@ -173,7 +162,7 @@ fn handle_branch_conflict(branch_name: &str) -> Result<String> {
             println!("Importing as '{}'", new_name);
             Ok(new_name)
         }
-        2 => Err(QSyncError::Cancelled.into()),
+        2 => bail!("Cancelled by user"),
         _ => unreachable!(),
     }
 }
@@ -186,9 +175,7 @@ fn import_bundle(bundle_path: &Path, original_branch: &str, target_branch: &str)
     
     if !output.status.success() {
         let error_msg = String::from_utf8_lossy(&output.stderr);
-        return Err(QSyncError::GitCommandFailed {
-            message: format!("Failed to import bundle: {}", error_msg)
-        }.into());
+        bail!("Git command failed: Failed to import bundle: {}", error_msg);
     }
     
     Ok(())
