@@ -1,9 +1,9 @@
 use crate::command_utils::execute_command;
 use crate::config::{check_git_repo, get_project_name, Config};
 use anyhow::{bail, Context, Result};
+use camino::{Utf8Path as Path, Utf8PathBuf as PathBuf};
 use dialoguer::{Confirm, Select};
 use std::fs;
-use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
 pub(crate) fn run(bundle_file: Option<String>) -> Result<()> {
@@ -26,7 +26,7 @@ pub(crate) fn run(bundle_file: Option<String>) -> Result<()> {
         }
     };
 
-    println!("Found bundle: {}", bundle_path.display());
+    println!("Found bundle: {}", bundle_path);
 
     // Verify bundle
     verify_bundle(&bundle_path)?;
@@ -69,7 +69,9 @@ fn find_latest_bundle(dir_path: &str) -> Result<PathBuf> {
         if entry.file_type().is_file() {
             if let Some(ext) = entry.path().extension() {
                 if ext == "bundle" {
-                    bundles.push(entry.into_path());
+                    if let Some(utf8_path) = Path::from_path(entry.path()) {
+                        bundles.push(utf8_path.to_path_buf());
+                    }
                 }
             }
         }
@@ -91,7 +93,7 @@ fn find_latest_bundle(dir_path: &str) -> Result<PathBuf> {
 }
 
 fn verify_bundle(bundle_path: &Path) -> Result<()> {
-    let output = execute_command("git", &["bundle", "verify", bundle_path.to_str().unwrap()])?;
+    let output = execute_command("git", &["bundle", "verify", bundle_path.as_str()])?;
 
     if !output.status.success() {
         let error_msg = String::from_utf8_lossy(&output.stderr);
@@ -105,10 +107,7 @@ fn verify_bundle(bundle_path: &Path) -> Result<()> {
 }
 
 fn extract_branch_name(bundle_path: &Path) -> Result<String> {
-    let output = execute_command(
-        "git",
-        &["bundle", "list-heads", bundle_path.to_str().unwrap()],
-    )?;
+    let output = execute_command("git", &["bundle", "list-heads", bundle_path.as_str()])?;
 
     if !output.status.success() {
         bail!("Git command failed: Failed to list bundle heads");
@@ -183,13 +182,12 @@ fn handle_branch_conflict(branch_name: &str) -> Result<String> {
 }
 
 fn import_bundle(bundle_path: &Path, original_branch: &str, target_branch: &str) -> Result<()> {
-    let bundle_str = bundle_path.to_str().unwrap();
     let refspec = format!(
         "refs/heads/{}:refs/heads/{}",
         original_branch, target_branch
     );
 
-    let output = execute_command("git", &["fetch", bundle_str, &refspec])?;
+    let output = execute_command("git", &["fetch", bundle_path.as_str(), &refspec])?;
 
     if !output.status.success() {
         let error_msg = String::from_utf8_lossy(&output.stderr);
