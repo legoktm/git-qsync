@@ -129,6 +129,35 @@ git bundle verify bundle.bundle HEAD
 - **Bundle selection**: Most recent `.bundle` file by timestamp
 - **Verification errors**: Pass through git's native error messages
 - **Missing bundles**: Emit clear error message
+- **Branch overwriting**: When overwriting existing branches, safely handle currently checked out branches
+- **Post-import switching**: Automatically switch to imported branch after successful import
+
+### Advanced Branch Handling
+When importing a bundle to overwrite an existing branch:
+
+1. **Current branch detection**: Uses gix library for efficient branch state detection
+2. **Safe deletion**: If the target branch is currently checked out:
+   - Attempts to switch to `main` or `master` if available
+   - Falls back to creating a temporary branch if needed
+   - Deletes the existing branch safely
+3. **Import execution**: Fetches bundle content to the target branch
+4. **Automatic switching**: Switches to the newly imported branch upon completion
+
+This ensures that import operations are safe and user-friendly, preventing git repository corruption from deleting currently active branches.
+
+## Performance and Implementation Details
+
+### Git Integration
+- **gix library**: Uses the high-performance `gix` Rust library for git operations where possible
+  - Branch existence checking: Native rust implementation via `gix::refs::find()`
+  - Current branch detection: Efficient HEAD analysis via `gix::Repository::head()`
+  - Repository validation: Fast git repository detection
+- **Git commands**: Falls back to git CLI for complex operations requiring worktree management:
+  - Branch switching (`git checkout`)
+  - Branch deletion (`git branch -D`)  
+  - Bundle operations (`git bundle`, `git fetch`)
+
+This hybrid approach provides the best of both worlds: fast, native operations for simple tasks while maintaining compatibility and reliability for complex git workflows.
 
 ## Error Messages
 ```bash
