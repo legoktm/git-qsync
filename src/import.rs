@@ -4,7 +4,6 @@ use anyhow::{bail, Context, Result};
 use camino::{Utf8Path as Path, Utf8PathBuf as PathBuf};
 use dialoguer::{Confirm, Select};
 use std::fs;
-use walkdir::WalkDir;
 
 pub(crate) fn run(bundle_file: Option<String>) -> Result<()> {
     check_git_repo()?;
@@ -64,14 +63,13 @@ fn find_latest_bundle(dir_path: &str) -> Result<PathBuf> {
 
     let mut bundles = Vec::new();
 
-    for entry in WalkDir::new(path).max_depth(1) {
+    for entry in path.read_dir_utf8()? {
         let entry = entry?;
-        if entry.file_type().is_file() {
-            if let Some(ext) = entry.path().extension() {
+        if entry.file_type()?.is_file() {
+            let entry_path = entry.path();
+            if let Some(ext) = entry_path.extension() {
                 if ext == "bundle" {
-                    if let Some(utf8_path) = Path::from_path(entry.path()) {
-                        bundles.push(utf8_path.to_path_buf());
-                    }
+                    bundles.push(entry_path.to_path_buf());
                 }
             }
         }

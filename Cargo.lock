@@ -446,7 +446,6 @@ dependencies = [
  "log",
  "predicates",
  "tempfile",
- "walkdir",
 ]
 
 [[package]]
