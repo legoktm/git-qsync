@@ -34,8 +34,11 @@ pub(crate) fn run(bundle_file: Option<String>) -> Result<()> {
     let branch_name = extract_branch_name(&bundle_path)?;
     println!("Bundle contains branch: {}", branch_name);
 
+    // Open the repository once and reuse it
+    let repo = gix::open(".")?;
+
     // Check if branch exists locally
-    let branch_exists = check_branch_exists_at_path(".", &branch_name)?;
+    let branch_exists = check_branch_exists(&repo, &branch_name)?;
 
     let final_branch_name = if branch_exists {
         handle_branch_conflict(&branch_name)?
@@ -45,7 +48,7 @@ pub(crate) fn run(bundle_file: Option<String>) -> Result<()> {
 
     // Handle branch overwriting if needed
     if branch_exists && final_branch_name == branch_name {
-        delete_branch_safely_at_path(".", &final_branch_name)?;
+        delete_branch_safely(&repo, &final_branch_name)?;
     }
 
     // Import the bundle
@@ -57,7 +60,7 @@ pub(crate) fn run(bundle_file: Option<String>) -> Result<()> {
     );
 
     // Switch to the imported branch
-    switch_to_branch_at_path(".", &final_branch_name)?;
+    switch_to_branch(&repo, &final_branch_name)?;
 
     Ok(())
 }
@@ -136,8 +139,7 @@ fn extract_branch_name(bundle_path: &Path) -> Result<String> {
     Ok(branch_name.to_string())
 }
 
-fn check_branch_exists_at_path(path: &str, branch_name: &str) -> Result<bool> {
-    let repo = gix::open(path)?;
+fn check_branch_exists(repo: &gix::Repository, branch_name: &str) -> Result<bool> {
     let reference_name = format!("refs/heads/{}", branch_name);
 
     match repo.refs.find(&reference_name) {
@@ -147,8 +149,7 @@ fn check_branch_exists_at_path(path: &str, branch_name: &str) -> Result<bool> {
     }
 }
 
-fn get_current_branch_at_path(path: &str) -> Result<String> {
-    let repo = gix::open(path)?;
+fn get_current_branch(repo: &gix::Repository) -> Result<String> {
     let head = repo.head()?;
 
     match head.referent_name() {
@@ -172,8 +173,11 @@ fn get_current_branch_at_path(path: &str) -> Result<String> {
     }
 }
 
-fn delete_branch_safely_at_path(repo_path: &str, branch_name: &str) -> Result<()> {
-    let is_current = is_branch_checked_out_at_path(repo_path, branch_name)?;
+fn delete_branch_safely(repo: &gix::Repository, branch_name: &str) -> Result<()> {
+    let is_current = is_branch_checked_out(repo, branch_name)?;
+    let repo_path = repo
+        .workdir()
+        .ok_or_else(|| anyhow::anyhow!("Repository has no working directory"))?;
 
     if is_current {
         // Switch to a safe branch before deleting
@@ -182,7 +186,7 @@ fn delete_branch_safely_at_path(repo_path: &str, branch_name: &str) -> Result<()
         let mut switched = false;
 
         for safe_branch in &safe_branches {
-            if check_branch_exists_at_path(repo_path, safe_branch)? && safe_branch != &branch_name {
+            if check_branch_exists(repo, safe_branch)? && safe_branch != &branch_name {
                 let output = execute_command_at_path("git", &["checkout", safe_branch], repo_path)?;
                 if output.status.success() {
                     println!(
@@ -238,7 +242,10 @@ fn delete_branch_safely_at_path(repo_path: &str, branch_name: &str) -> Result<()
     Ok(())
 }
 
-fn switch_to_branch_at_path(repo_path: &str, branch_name: &str) -> Result<()> {
+fn switch_to_branch(repo: &gix::Repository, branch_name: &str) -> Result<()> {
+    let repo_path = repo
+        .workdir()
+        .ok_or_else(|| anyhow::anyhow!("Repository has no working directory"))?;
     let output = execute_command_at_path("git", &["checkout", branch_name], repo_path)?;
 
     if !output.status.success() {
@@ -254,15 +261,15 @@ fn switch_to_branch_at_path(repo_path: &str, branch_name: &str) -> Result<()> {
     Ok(())
 }
 
-fn is_branch_checked_out_at_path(repo_path: &str, branch_name: &str) -> Result<bool> {
-    let current_branch = get_current_branch_at_path(repo_path)?;
+fn is_branch_checked_out(repo: &gix::Repository, branch_name: &str) -> Result<bool> {
+    let current_branch = get_current_branch(repo)?;
     Ok(current_branch == branch_name)
 }
 
 fn execute_command_at_path(
     cmd: &str,
     args: &[&str],
-    repo_path: &str,
+    repo_path: &std::path::Path,
 ) -> Result<std::process::Output> {
     let output = std::process::Command::new(cmd)
         .args(args)
@@ -408,6 +415,32 @@ mod tests {
         Ok(())
     }
 
+    // Helper functions for tests that work with paths
+    fn get_current_branch_at_path(path: &std::path::Path) -> Result<String> {
+        let repo = gix::open(path)?;
+        get_current_branch(&repo)
+    }
+
+    fn check_branch_exists_at_path(path: &std::path::Path, branch_name: &str) -> Result<bool> {
+        let repo = gix::open(path)?;
+        check_branch_exists(&repo, branch_name)
+    }
+
+    fn is_branch_checked_out_at_path(path: &std::path::Path, branch_name: &str) -> Result<bool> {
+        let repo = gix::open(path)?;
+        is_branch_checked_out(&repo, branch_name)
+    }
+
+    fn delete_branch_safely_at_path(path: &std::path::Path, branch_name: &str) -> Result<()> {
+        let repo = gix::open(path)?;
+        delete_branch_safely(&repo, branch_name)
+    }
+
+    fn switch_to_branch_at_path(path: &std::path::Path, branch_name: &str) -> Result<()> {
+        let repo = gix::open(path)?;
+        switch_to_branch(&repo, branch_name)
+    }
+
     #[test]
     fn test_get_current_branch_on_main() {
         let temp_dir = TempDir::new().unwrap();
@@ -415,7 +448,7 @@ mod tests {
         // Setup test directory
         setup_test_git_repo(temp_dir.path()).unwrap();
 
-        let result = get_current_branch_at_path(temp_dir.path().to_str().unwrap());
+        let result = get_current_branch_at_path(temp_dir.path());
 
         assert!(
             result.is_ok(),
@@ -449,7 +482,7 @@ mod tests {
             String::from_utf8_lossy(&output.stderr)
         );
 
-        let result = get_current_branch_at_path(temp_dir.path().to_str().unwrap());
+        let result = get_current_branch_at_path(temp_dir.path());
 
         assert!(
             result.is_ok(),
@@ -481,7 +514,7 @@ mod tests {
             .unwrap();
         assert!(output.status.success(), "Failed to checkout detached HEAD");
 
-        let result = get_current_branch_at_path(temp_dir.path().to_str().unwrap());
+        let result = get_current_branch_at_path(temp_dir.path());
 
         assert!(result.is_err(), "Should fail on detached HEAD");
         let error_msg = result.unwrap_err().to_string();
@@ -499,8 +532,7 @@ mod tests {
         setup_test_git_repo(temp_dir.path()).unwrap();
         create_branch(temp_dir.path(), "existing-branch").unwrap();
 
-        let result =
-            check_branch_exists_at_path(temp_dir.path().to_str().unwrap(), "existing-branch");
+        let result = check_branch_exists_at_path(temp_dir.path(), "existing-branch");
 
         assert!(result.is_ok());
         assert!(result.unwrap());
@@ -512,8 +544,7 @@ mod tests {
 
         setup_test_git_repo(temp_dir.path()).unwrap();
 
-        let result =
-            check_branch_exists_at_path(temp_dir.path().to_str().unwrap(), "non-existent-branch");
+        let result = check_branch_exists_at_path(temp_dir.path(), "non-existent-branch");
 
         assert!(result.is_ok());
         assert!(!result.unwrap());
@@ -527,9 +558,9 @@ mod tests {
         create_branch(temp_dir.path(), "test-branch").unwrap();
 
         // Check that main/master is currently checked out
-        let current = get_current_branch_at_path(temp_dir.path().to_str().unwrap()).unwrap();
+        let current = get_current_branch_at_path(temp_dir.path()).unwrap();
 
-        let result = is_branch_checked_out_at_path(temp_dir.path().to_str().unwrap(), &current);
+        let result = is_branch_checked_out_at_path(temp_dir.path(), &current);
         assert!(
             result.is_ok(),
             "Failed to check if branch is checked out: {:?}",
@@ -538,8 +569,7 @@ mod tests {
         assert!(result.unwrap());
 
         // Check that test-branch is not checked out
-        let result =
-            is_branch_checked_out_at_path(temp_dir.path().to_str().unwrap(), "test-branch");
+        let result = is_branch_checked_out_at_path(temp_dir.path(), "test-branch");
         assert!(
             result.is_ok(),
             "Failed to check if branch is checked out: {:?}",
@@ -557,18 +587,18 @@ mod tests {
 
         // Verify branch exists before deletion using the path-based function
         assert!(
-            check_branch_exists_at_path(temp_dir.path().to_str().unwrap(), "delete-me").unwrap(),
+            check_branch_exists_at_path(temp_dir.path(), "delete-me").unwrap(),
             "Branch should exist before deletion"
         );
 
         // Verify we're on a different branch (not the one we're about to delete)
-        let current_branch = get_current_branch_at_path(temp_dir.path().to_str().unwrap()).unwrap();
+        let current_branch = get_current_branch_at_path(temp_dir.path()).unwrap();
         assert_ne!(
             current_branch, "delete-me",
             "Should not be on the branch we're deleting"
         );
 
-        let result = delete_branch_safely_at_path(temp_dir.path().to_str().unwrap(), "delete-me");
+        let result = delete_branch_safely_at_path(temp_dir.path(), "delete-me");
 
         assert!(
             result.is_ok(),
@@ -596,7 +626,7 @@ mod tests {
         );
 
         // Verify we're on the branch we want to delete
-        let current_branch = get_current_branch_at_path(temp_dir.path().to_str().unwrap()).unwrap();
+        let current_branch = get_current_branch_at_path(temp_dir.path()).unwrap();
         assert_eq!(
             current_branch, "feature-to-delete",
             "Should be on the branch we're about to delete"
@@ -604,14 +634,12 @@ mod tests {
 
         // Verify the branch exists before trying to delete it
         assert!(
-            check_branch_exists_at_path(temp_dir.path().to_str().unwrap(), "feature-to-delete")
-                .unwrap(),
+            check_branch_exists_at_path(temp_dir.path(), "feature-to-delete").unwrap(),
             "Branch should exist before deletion"
         );
 
         // This should switch away and delete the branch
-        let result =
-            delete_branch_safely_at_path(temp_dir.path().to_str().unwrap(), "feature-to-delete");
+        let result = delete_branch_safely_at_path(temp_dir.path(), "feature-to-delete");
 
         assert!(
             result.is_ok(),
@@ -627,7 +655,7 @@ mod tests {
         setup_test_git_repo(temp_dir.path()).unwrap();
         create_branch(temp_dir.path(), "switch-to-me").unwrap();
 
-        let result = switch_to_branch_at_path(temp_dir.path().to_str().unwrap(), "switch-to-me");
+        let result = switch_to_branch_at_path(temp_dir.path(), "switch-to-me");
 
         assert!(
             result.is_ok(),
@@ -642,8 +670,7 @@ mod tests {
 
         setup_test_git_repo(temp_dir.path()).unwrap();
 
-        let result =
-            switch_to_branch_at_path(temp_dir.path().to_str().unwrap(), "non-existent-branch");
+        let result = switch_to_branch_at_path(temp_dir.path(), "non-existent-branch");
 
         assert!(
             result.is_err(),
