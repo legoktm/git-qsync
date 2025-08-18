@@ -3,7 +3,7 @@ use crate::config::{check_git_repo, get_current_branch, get_project_name};
 use crate::system_config::SystemConfig;
 use anyhow::{bail, Context, Result};
 use camino::Utf8Path as Path;
-use jiff::Zoned;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tempfile::TempDir;
 
 pub(crate) fn run(branch: Option<String>, system_config: &SystemConfig) -> Result<()> {
@@ -15,7 +15,10 @@ pub(crate) fn run(branch: Option<String>, system_config: &SystemConfig) -> Resul
     };
 
     let project_name = get_project_name()?;
-    let timestamp = Zoned::now().strftime("%Y-%m-%dT%H-%M-%S").to_string();
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
     // Sanitize branch name for filename (replace / with -)
     let safe_branch_name = branch_name.replace('/', "-");
     let bundle_filename = format!("{}_{}_{}.bundle", project_name, safe_branch_name, timestamp);
