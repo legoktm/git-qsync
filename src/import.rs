@@ -177,7 +177,10 @@ fn delete_branch_safely(repo: &gix::Repository, branch_name: &str) -> Result<()>
     let is_current = is_branch_checked_out(repo, branch_name)?;
     let repo_path = repo
         .workdir()
-        .ok_or_else(|| anyhow::anyhow!("Repository has no working directory"))?;
+        .ok_or_else(|| anyhow::anyhow!("Repository has no working directory"))
+        .and_then(|p| {
+            Path::from_path(p).ok_or_else(|| anyhow::anyhow!("Repository path is not valid UTF-8"))
+        })?;
 
     if is_current {
         // Switch to a safe branch before deleting
@@ -245,7 +248,10 @@ fn delete_branch_safely(repo: &gix::Repository, branch_name: &str) -> Result<()>
 fn switch_to_branch(repo: &gix::Repository, branch_name: &str) -> Result<()> {
     let repo_path = repo
         .workdir()
-        .ok_or_else(|| anyhow::anyhow!("Repository has no working directory"))?;
+        .ok_or_else(|| anyhow::anyhow!("Repository has no working directory"))
+        .and_then(|p| {
+            Path::from_path(p).ok_or_else(|| anyhow::anyhow!("Repository path is not valid UTF-8"))
+        })?;
     let output = execute_command_at_path("git", &["checkout", branch_name], repo_path)?;
 
     if !output.status.success() {
@@ -269,11 +275,11 @@ fn is_branch_checked_out(repo: &gix::Repository, branch_name: &str) -> Result<bo
 fn execute_command_at_path(
     cmd: &str,
     args: &[&str],
-    repo_path: &std::path::Path,
+    repo_path: &Path,
 ) -> Result<std::process::Output> {
     let output = std::process::Command::new(cmd)
         .args(args)
-        .current_dir(repo_path)
+        .current_dir(repo_path.as_std_path())
         .output()?;
     Ok(output)
 }
@@ -416,28 +422,37 @@ mod tests {
     }
 
     // Helper functions for tests that work with paths
+    fn to_camino_path(path: &std::path::Path) -> Result<&Path> {
+        Path::from_path(path).ok_or_else(|| anyhow::anyhow!("Path is not valid UTF-8"))
+    }
+
     fn get_current_branch_at_path(path: &std::path::Path) -> Result<String> {
-        let repo = gix::open(path)?;
+        let camino_path = to_camino_path(path)?;
+        let repo = gix::open(camino_path)?;
         get_current_branch(&repo)
     }
 
     fn check_branch_exists_at_path(path: &std::path::Path, branch_name: &str) -> Result<bool> {
-        let repo = gix::open(path)?;
+        let camino_path = to_camino_path(path)?;
+        let repo = gix::open(camino_path)?;
         check_branch_exists(&repo, branch_name)
     }
 
     fn is_branch_checked_out_at_path(path: &std::path::Path, branch_name: &str) -> Result<bool> {
-        let repo = gix::open(path)?;
+        let camino_path = to_camino_path(path)?;
+        let repo = gix::open(camino_path)?;
         is_branch_checked_out(&repo, branch_name)
     }
 
     fn delete_branch_safely_at_path(path: &std::path::Path, branch_name: &str) -> Result<()> {
-        let repo = gix::open(path)?;
+        let camino_path = to_camino_path(path)?;
+        let repo = gix::open(camino_path)?;
         delete_branch_safely(&repo, branch_name)
     }
 
     fn switch_to_branch_at_path(path: &std::path::Path, branch_name: &str) -> Result<()> {
-        let repo = gix::open(path)?;
+        let camino_path = to_camino_path(path)?;
+        let repo = gix::open(camino_path)?;
         switch_to_branch(&repo, branch_name)
     }
 
