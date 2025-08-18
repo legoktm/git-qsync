@@ -35,7 +35,7 @@ pub(crate) fn run(bundle_file: Option<String>) -> Result<()> {
     println!("Bundle contains branch: {}", branch_name);
 
     // Check if branch exists locally
-    let branch_exists = check_branch_exists(&branch_name)?;
+    let branch_exists = check_branch_exists_at_path(".", &branch_name)?;
 
     let final_branch_name = if branch_exists {
         handle_branch_conflict(&branch_name)?
@@ -45,7 +45,7 @@ pub(crate) fn run(bundle_file: Option<String>) -> Result<()> {
 
     // Handle branch overwriting if needed
     if branch_exists && final_branch_name == branch_name {
-        delete_branch_safely(&final_branch_name)?;
+        delete_branch_safely_at_path(".", &final_branch_name)?;
     }
 
     // Import the bundle
@@ -57,7 +57,7 @@ pub(crate) fn run(bundle_file: Option<String>) -> Result<()> {
     );
 
     // Switch to the imported branch
-    switch_to_branch(&final_branch_name)?;
+    switch_to_branch_at_path(".", &final_branch_name)?;
 
     Ok(())
 }
@@ -136,10 +136,6 @@ fn extract_branch_name(bundle_path: &Path) -> Result<String> {
     Ok(branch_name.to_string())
 }
 
-fn check_branch_exists(branch_name: &str) -> Result<bool> {
-    check_branch_exists_at_path(".", branch_name)
-}
-
 fn check_branch_exists_at_path(path: &str, branch_name: &str) -> Result<bool> {
     let repo = gix::open(path)?;
     let reference_name = format!("refs/heads/{}", branch_name);
@@ -174,10 +170,6 @@ fn get_current_branch_at_path(path: &str) -> Result<String> {
             }
         }
     }
-}
-
-fn delete_branch_safely(branch_name: &str) -> Result<()> {
-    delete_branch_safely_at_path(".", branch_name)
 }
 
 fn delete_branch_safely_at_path(repo_path: &str, branch_name: &str) -> Result<()> {
@@ -244,10 +236,6 @@ fn delete_branch_safely_at_path(repo_path: &str, branch_name: &str) -> Result<()
 
     println!("Deleted existing branch '{}'", branch_name);
     Ok(())
-}
-
-fn switch_to_branch(branch_name: &str) -> Result<()> {
-    switch_to_branch_at_path(".", branch_name)
 }
 
 fn switch_to_branch_at_path(repo_path: &str, branch_name: &str) -> Result<()> {
