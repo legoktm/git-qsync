@@ -296,7 +296,7 @@ fn handle_branch_conflict(branch_name: &str) -> Result<String> {
     let selection = Select::new()
         .with_prompt("Choose action")
         .items(&options)
-        .default(1)
+        .default(0)
         .interact()?;
 
     match selection {
