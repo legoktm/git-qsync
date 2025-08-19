@@ -2,7 +2,7 @@ use crate::command_utils::execute_command;
 use crate::config::{check_git_repo, get_project_name, Config};
 use anyhow::{bail, Context, Result};
 use camino::{Utf8Path as Path, Utf8PathBuf as PathBuf};
-use dialoguer::{Confirm, Select};
+use dialoguer::Select;
 use std::fs;
 
 pub(crate) fn run(bundle_file: Option<String>) -> Result<()> {
@@ -300,18 +300,7 @@ fn handle_branch_conflict(branch_name: &str) -> Result<String> {
         .interact()?;
 
     match selection {
-        0 => {
-            let confirm = Confirm::new()
-                .with_prompt("This will permanently overwrite the existing branch. Continue?")
-                .default(false)
-                .interact()?;
-
-            if confirm {
-                Ok(branch_name.to_string())
-            } else {
-                bail!("Cancelled by user")
-            }
-        }
+        0 => Ok(branch_name.to_string()),
         1 => {
             let new_name = format!("import-{}", branch_name);
             println!("Importing as '{}'", new_name);
@@ -420,8 +409,6 @@ mod tests {
 
         Ok(())
     }
-
-
 
     #[test]
     fn test_get_current_branch_on_main() {
