@@ -156,6 +156,20 @@ fn check_branch_exists(repo: &gix::Repository, branch_name: &str) -> Result<bool
     }
 }
 
+fn get_default_branch(repo: &gix::Repository) -> Result<Option<String>> {
+    // Try to get the default branch from the remote HEAD reference
+    if let Ok(Some(remote_head_ref)) = repo.try_find_reference("refs/remotes/origin/HEAD") {
+        if let gix::refs::TargetRef::Symbolic(name) = remote_head_ref.target() {
+            let full_name = name.as_bstr().to_string();
+            if let Some(branch_name) = full_name.strip_prefix("refs/remotes/origin/") {
+                return Ok(Some(branch_name.to_string()));
+            }
+        }
+    }
+
+    Ok(None)
+}
+
 fn get_current_branch(repo: &gix::Repository) -> Result<String> {
     let head = repo.head()?;
 
@@ -191,53 +205,77 @@ fn delete_branch_safely(repo: &gix::Repository, branch_name: &str) -> Result<Opt
 
     let temp_branch_name = if is_current {
         // Switch to a safe branch before deleting
-        // Try to switch to main, then master, then create a temporary branch
-        let safe_branches = ["main", "master"];
         let mut switched = false;
 
-        for safe_branch in &safe_branches {
-            if check_branch_exists(repo, safe_branch)? && safe_branch != &branch_name {
-                let output = execute_command_at_path("git", &["checkout", safe_branch], repo_path)?;
+        // First, try to switch to the detected default branch
+        if let Ok(Some(default_branch)) = get_default_branch(repo) {
+            if check_branch_exists(repo, &default_branch)? && default_branch != branch_name {
+                let output = execute_command_at_path("git", &["checkout", &default_branch], repo_path)?;
                 if output.status.success() {
                     println!(
-                        "Switched to '{}' before deleting '{}'",
-                        safe_branch, branch_name
+                        "Switched to default branch '{}' before deleting '{}'",
+                        default_branch, branch_name
                     );
                     switched = true;
-                    break;
                 }
             }
         }
 
         if !switched {
-            // Create a temporary branch from HEAD~1 or from the first commit
-            let temp_branch = format!("temp-before-import-{}", branch_name);
-            let output = execute_command_at_path(
-                "git",
-                &["checkout", "-b", &temp_branch, "HEAD~1"],
-                repo_path,
-            )?;
-            if !output.status.success() {
-                // Try from first commit if HEAD~1 doesn't work
+            // Try to switch to any other existing local branch
+            if let Ok(iter) = repo.references()?.local_branches() {
+                for branch_ref in iter.flatten() {
+                    if let Some(name) = branch_ref.name().category_and_short_name() {
+                        let other_branch = name.1.to_string();
+                        if other_branch != branch_name && !other_branch.is_empty() {
+                            let output = execute_command_at_path("git", &["checkout", &other_branch], repo_path)?;
+                            if output.status.success() {
+                                println!(
+                                    "Switched to existing branch '{}' before deleting '{}'",
+                                    other_branch, branch_name
+                                );
+                                switched = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if !switched {
+                // Create a temporary branch from HEAD~1 or from the first commit
+                let temp_branch = format!("temp-before-import-{}", branch_name);
                 let output = execute_command_at_path(
                     "git",
-                    &["checkout", "--orphan", &temp_branch],
+                    &["checkout", "-b", &temp_branch, "HEAD~1"],
                     repo_path,
                 )?;
                 if !output.status.success() {
-                    bail!(
-                        "Cannot switch away from branch '{}' to delete it",
-                        branch_name
-                    );
+                    // Try from first commit if HEAD~1 doesn't work
+                    let output = execute_command_at_path(
+                        "git",
+                        &["checkout", "--orphan", &temp_branch],
+                        repo_path,
+                    )?;
+                    if !output.status.success() {
+                        bail!(
+                            "Cannot switch away from branch '{}' to delete it. Git errors:\nHEAD~1 checkout: {}\nOrphan checkout: {}",
+                            branch_name,
+                            String::from_utf8_lossy(&output.stderr),
+                            String::from_utf8_lossy(&output.stderr)
+                        );
+                    }
+                    // Clear the index for orphan branch
+                    let _ = execute_command_at_path("git", &["reset", "--hard"], repo_path);
                 }
-                // Clear the index for orphan branch
-                let _ = execute_command_at_path("git", &["reset", "--hard"], repo_path);
+                println!(
+                    "Created temporary branch '{}' before deleting '{}'",
+                    temp_branch, branch_name
+                );
+                Some(temp_branch)
+            } else {
+                None
             }
-            println!(
-                "Created temporary branch '{}' before deleting '{}'",
-                temp_branch, branch_name
-            );
-            Some(temp_branch)
         } else {
             None
         }
@@ -444,6 +482,106 @@ mod tests {
         }
 
         Ok(())
+    }
+
+    #[test]
+    fn test_get_default_branch() {
+        let temp_dir = TempDir::new().unwrap();
+
+        // Setup test directory
+        setup_test_git_repo(temp_dir.path()).unwrap();
+
+        // Add a remote origin and set up origin/HEAD reference
+        let output = Command::new("git")
+            .args(["remote", "add", "origin", "https://github.com/example/repo.git"])
+            .current_dir(temp_dir.path())
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "Failed to add remote origin");
+
+        // Create the refs/remotes/origin/HEAD symbolic reference pointing to main
+        let refs_dir = temp_dir.path().join(".git/refs/remotes/origin");
+        std::fs::create_dir_all(&refs_dir).unwrap();
+        std::fs::write(refs_dir.join("HEAD"), "ref: refs/remotes/origin/main\n").unwrap();
+
+        let repo = gix::open(temp_dir.path()).unwrap();
+        let result = get_default_branch(&repo);
+
+        assert!(
+            result.is_ok(),
+            "Failed to get default branch: {:?}",
+            result.err()
+        );
+        let default_branch = result.unwrap();
+        assert_eq!(default_branch, Some("main".to_string()));
+    }
+
+    #[test]
+    fn test_get_default_branch_with_develop() {
+        let temp_dir = TempDir::new().unwrap();
+
+        // Setup test directory
+        setup_test_git_repo(temp_dir.path()).unwrap();
+
+        // Add a remote origin and set up origin/HEAD reference pointing to develop
+        let output = Command::new("git")
+            .args(["remote", "add", "origin", "https://github.com/example/repo.git"])
+            .current_dir(temp_dir.path())
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "Failed to add remote origin");
+
+        // Create the refs/remotes/origin/HEAD symbolic reference pointing to develop
+        let refs_dir = temp_dir.path().join(".git/refs/remotes/origin");
+        std::fs::create_dir_all(&refs_dir).unwrap();
+        std::fs::write(refs_dir.join("HEAD"), "ref: refs/remotes/origin/develop\n").unwrap();
+
+        let repo = gix::open(temp_dir.path()).unwrap();
+        let result = get_default_branch(&repo);
+
+        assert!(
+            result.is_ok(),
+            "Failed to get default branch: {:?}",
+            result.err()
+        );
+        let default_branch = result.unwrap();
+        assert_eq!(default_branch, Some("develop".to_string()));
+    }
+
+    #[test]
+    fn test_get_default_branch_no_remote_head() {
+        let temp_dir = TempDir::new().unwrap();
+
+        // Setup test directory without remote HEAD reference
+        setup_test_git_repo(temp_dir.path()).unwrap();
+
+        let repo = gix::open(temp_dir.path()).unwrap();
+        let result = get_default_branch(&repo);
+
+        assert!(
+            result.is_ok(),
+            "Failed to get default branch: {:?}",
+            result.err()
+        );
+        let default_branch = result.unwrap();
+        // Should return None when no remote HEAD reference exists
+        assert_eq!(default_branch, None);
+    }
+
+    #[test]
+    fn test_get_default_branch_current_repo() {
+        // Test with the actual current repository (git-qsync)
+        let repo = gix::open(".").unwrap();
+        let result = get_default_branch(&repo);
+
+        assert!(
+            result.is_ok(),
+            "Failed to get default branch: {:?}",
+            result.err()
+        );
+        let default_branch = result.unwrap();
+        // Should detect "main" as the default branch for git-qsync repo
+        assert_eq!(default_branch, Some("main".to_string()));
     }
 
     #[test]
