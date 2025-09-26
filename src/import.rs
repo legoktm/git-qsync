@@ -47,9 +47,11 @@ pub(crate) fn run(bundle_file: Option<String>) -> Result<()> {
     };
 
     // Handle branch overwriting if needed
-    if branch_exists && final_branch_name == branch_name {
-        delete_branch_safely(&repo, &final_branch_name)?;
-    }
+    let temp_branch_created = if branch_exists && final_branch_name == branch_name {
+        delete_branch_safely(&repo, &final_branch_name)?
+    } else {
+        None
+    };
 
     // Import the bundle
     import_bundle(&bundle_path, &branch_name, &final_branch_name)?;
@@ -61,6 +63,11 @@ pub(crate) fn run(bundle_file: Option<String>) -> Result<()> {
 
     // Switch to the imported branch
     switch_to_branch(&repo, &final_branch_name)?;
+
+    // Clean up temporary branch if one was created
+    if let Some(temp_branch) = temp_branch_created {
+        cleanup_temp_branch(&repo, &temp_branch)?;
+    }
 
     Ok(())
 }
@@ -173,7 +180,7 @@ fn get_current_branch(repo: &gix::Repository) -> Result<String> {
     }
 }
 
-fn delete_branch_safely(repo: &gix::Repository, branch_name: &str) -> Result<()> {
+fn delete_branch_safely(repo: &gix::Repository, branch_name: &str) -> Result<Option<String>> {
     let is_current = is_branch_checked_out(repo, branch_name)?;
     let repo_path = repo
         .workdir()
@@ -182,7 +189,7 @@ fn delete_branch_safely(repo: &gix::Repository, branch_name: &str) -> Result<()>
             Path::from_path(p).ok_or_else(|| anyhow::anyhow!("Repository path is not valid UTF-8"))
         })?;
 
-    if is_current {
+    let temp_branch_name = if is_current {
         // Switch to a safe branch before deleting
         // Try to switch to main, then master, then create a temporary branch
         let safe_branches = ["main", "master"];
@@ -230,8 +237,13 @@ fn delete_branch_safely(repo: &gix::Repository, branch_name: &str) -> Result<()>
                 "Created temporary branch '{}' before deleting '{}'",
                 temp_branch, branch_name
             );
+            Some(temp_branch)
+        } else {
+            None
         }
-    }
+    } else {
+        None
+    };
 
     // Now delete the branch
     let output = execute_command_at_path("git", &["branch", "-D", branch_name], repo_path)?;
@@ -242,7 +254,7 @@ fn delete_branch_safely(repo: &gix::Repository, branch_name: &str) -> Result<()>
     }
 
     println!("Deleted existing branch '{}'", branch_name);
-    Ok(())
+    Ok(temp_branch_name)
 }
 
 fn switch_to_branch(repo: &gix::Repository, branch_name: &str) -> Result<()> {
@@ -264,6 +276,30 @@ fn switch_to_branch(repo: &gix::Repository, branch_name: &str) -> Result<()> {
     }
 
     println!("Switched to branch '{}'", branch_name);
+    Ok(())
+}
+
+fn cleanup_temp_branch(repo: &gix::Repository, temp_branch_name: &str) -> Result<()> {
+    let repo_path = repo
+        .workdir()
+        .ok_or_else(|| anyhow::anyhow!("Repository has no working directory"))
+        .and_then(|p| {
+            Path::from_path(p).ok_or_else(|| anyhow::anyhow!("Repository path is not valid UTF-8"))
+        })?;
+
+    // Check if the temporary branch still exists
+    if check_branch_exists(repo, temp_branch_name)? {
+        let output = execute_command_at_path("git", &["branch", "-D", temp_branch_name], repo_path)?;
+
+        if output.status.success() {
+            println!("Cleaned up temporary branch '{}'", temp_branch_name);
+        } else {
+            // Don't fail the entire import if cleanup fails - just warn
+            let error_msg = String::from_utf8_lossy(&output.stderr);
+            eprintln!("Warning: Failed to clean up temporary branch '{}': {}", temp_branch_name, error_msg);
+        }
+    }
+
     Ok(())
 }
 
