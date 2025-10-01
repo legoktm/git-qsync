@@ -245,6 +245,21 @@ fn delete_branch_safely(repo: &gix::Repository, branch_name: &str) -> Result<Opt
             if !switched {
                 // Create a temporary branch from HEAD~1 or from the first commit
                 let temp_branch = format!("temp-before-import-{}", branch_name);
+
+                // Delete the temp branch if it already exists (from a previous failed import)
+                if check_branch_exists(repo, &temp_branch)? {
+                    let output =
+                        execute_command_at_path("git", &["branch", "-D", &temp_branch], repo_path)?;
+                    if !output.status.success() {
+                        let error_msg = String::from_utf8_lossy(&output.stderr);
+                        bail!(
+                            "Failed to delete existing temporary branch '{}': {}",
+                            temp_branch,
+                            error_msg
+                        );
+                    }
+                }
+
                 let output = execute_command_at_path(
                     "git",
                     &["checkout", "-b", &temp_branch, "HEAD~1"],
