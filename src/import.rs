@@ -210,7 +210,8 @@ fn delete_branch_safely(repo: &gix::Repository, branch_name: &str) -> Result<Opt
         // First, try to switch to the detected default branch
         if let Ok(Some(default_branch)) = get_default_branch(repo) {
             if check_branch_exists(repo, &default_branch)? && default_branch != branch_name {
-                let output = execute_command_at_path("git", &["checkout", &default_branch], repo_path)?;
+                let output =
+                    execute_command_at_path("git", &["checkout", &default_branch], repo_path)?;
                 if output.status.success() {
                     println!(
                         "Switched to default branch '{}' before deleting '{}'",
@@ -228,7 +229,11 @@ fn delete_branch_safely(repo: &gix::Repository, branch_name: &str) -> Result<Opt
                     if let Some(name) = branch_ref.name().category_and_short_name() {
                         let other_branch = name.1.to_string();
                         if other_branch != branch_name && !other_branch.is_empty() {
-                            let output = execute_command_at_path("git", &["checkout", &other_branch], repo_path)?;
+                            let output = execute_command_at_path(
+                                "git",
+                                &["checkout", &other_branch],
+                                repo_path,
+                            )?;
                             if output.status.success() {
                                 println!(
                                     "Switched to existing branch '{}' before deleting '{}'",
@@ -342,14 +347,18 @@ fn cleanup_temp_branch(repo: &gix::Repository, temp_branch_name: &str) -> Result
 
     // Check if the temporary branch still exists
     if check_branch_exists(repo, temp_branch_name)? {
-        let output = execute_command_at_path("git", &["branch", "-D", temp_branch_name], repo_path)?;
+        let output =
+            execute_command_at_path("git", &["branch", "-D", temp_branch_name], repo_path)?;
 
         if output.status.success() {
             println!("Cleaned up temporary branch '{}'", temp_branch_name);
         } else {
             // Don't fail the entire import if cleanup fails - just warn
             let error_msg = String::from_utf8_lossy(&output.stderr);
-            eprintln!("Warning: Failed to clean up temporary branch '{}': {}", temp_branch_name, error_msg);
+            eprintln!(
+                "Warning: Failed to clean up temporary branch '{}': {}",
+                temp_branch_name, error_msg
+            );
         }
     }
 
@@ -508,7 +517,12 @@ mod tests {
 
         // Add a remote origin and set up origin/HEAD reference
         let output = Command::new("git")
-            .args(["remote", "add", "origin", "https://github.com/example/repo.git"])
+            .args([
+                "remote",
+                "add",
+                "origin",
+                "https://github.com/example/repo.git",
+            ])
             .current_dir(temp_dir.path())
             .output()
             .unwrap();
@@ -540,7 +554,12 @@ mod tests {
 
         // Add a remote origin and set up origin/HEAD reference pointing to develop
         let output = Command::new("git")
-            .args(["remote", "add", "origin", "https://github.com/example/repo.git"])
+            .args([
+                "remote",
+                "add",
+                "origin",
+                "https://github.com/example/repo.git",
+            ])
             .current_dir(temp_dir.path())
             .output()
             .unwrap();
