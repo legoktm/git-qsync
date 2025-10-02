@@ -1,12 +1,16 @@
 use anyhow::Result;
+use camino::Utf8Path as Path;
 use log::debug;
 use std::process::{Command, Output};
 
-/// Execute a command with debug logging
-pub(crate) fn execute_command(cmd: &str, args: &[&str]) -> Result<Output> {
+/// Execute a command with debug logging in a specific directory
+pub(crate) fn execute_command(cmd: &str, args: &[&str], current_dir: &Path) -> Result<Output> {
     debug!("Executing command: {} {}", cmd, args.join(" "));
 
-    let output = Command::new(cmd).args(args).output()?;
+    let output = Command::new(cmd)
+        .args(args)
+        .current_dir(current_dir.as_std_path())
+        .output()?;
 
     if output.status.success() {
         debug!("Command succeeded: {} {}", cmd, args.join(" "));

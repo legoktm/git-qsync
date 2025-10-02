@@ -79,7 +79,11 @@ fn is_default_branch(branch: &str, default_branch: &str) -> Result<bool> {
 }
 
 fn get_default_branch() -> Result<String> {
-    let output = execute_command("git", &["symbolic-ref", "refs/remotes/origin/HEAD"])?;
+    let output = execute_command(
+        "git",
+        &["symbolic-ref", "refs/remotes/origin/HEAD"],
+        Path::new("."),
+    )?;
 
     if !output.status.success() {
         let repo = gix::discover(".")?;
@@ -145,7 +149,11 @@ fn get_merge_base(branch: &str, default_branch: &str) -> Result<String> {
 }
 
 fn create_bundle(bundle_path: &Path, range: &str) -> Result<()> {
-    let output = execute_command("git", &["bundle", "create", bundle_path.as_str(), range])?;
+    let output = execute_command(
+        "git",
+        &["bundle", "create", bundle_path.as_str(), range],
+        Path::new("."),
+    )?;
 
     if !output.status.success() {
         let error_msg = String::from_utf8_lossy(&output.stderr);
@@ -156,7 +164,11 @@ fn create_bundle(bundle_path: &Path, range: &str) -> Result<()> {
 }
 
 fn move_bundle_to_vm(git_qsync_dir: &Path, system_config: &SystemConfig) -> Result<()> {
-    let output = execute_command(&system_config.qvm_move_path, &[git_qsync_dir.as_str()])?;
+    let output = execute_command(
+        &system_config.qvm_move_path,
+        &[git_qsync_dir.as_str()],
+        Path::new("."),
+    )?;
 
     if !output.status.success() {
         let error_msg = String::from_utf8_lossy(&output.stderr);

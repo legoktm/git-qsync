@@ -46,7 +46,7 @@ pub(crate) fn run(bundle_file: Option<String>) -> Result<()> {
             "Branch '{}' already exists, attempting fast-forward...",
             branch_name
         );
-        match try_fast_forward_import(&bundle_path, &branch_name) {
+        match try_fast_forward_import(&bundle_path, &branch_name, Path::new(".")) {
             Ok(true) => {
                 // Fast-forward succeeded
                 println!("Successfully fast-forwarded branch '{}'", branch_name);
@@ -85,7 +85,12 @@ pub(crate) fn run(bundle_file: Option<String>) -> Result<()> {
     };
 
     // Import the bundle
-    import_bundle(&bundle_path, &branch_name, &final_branch_name)?;
+    import_bundle(
+        &bundle_path,
+        &branch_name,
+        &final_branch_name,
+        Path::new("."),
+    )?;
 
     println!(
         "Successfully imported branch '{}' as '{}'",
@@ -140,7 +145,11 @@ fn find_latest_bundle(dir_path: &str) -> Result<PathBuf> {
 }
 
 fn verify_bundle(bundle_path: &Path) -> Result<()> {
-    let output = execute_command("git", &["bundle", "verify", bundle_path.as_str()])?;
+    let output = execute_command(
+        "git",
+        &["bundle", "verify", bundle_path.as_str()],
+        Path::new("."),
+    )?;
 
     if !output.status.success() {
         let error_msg = String::from_utf8_lossy(&output.stderr);
@@ -154,7 +163,11 @@ fn verify_bundle(bundle_path: &Path) -> Result<()> {
 }
 
 fn extract_branch_name(bundle_path: &Path) -> Result<String> {
-    let output = execute_command("git", &["bundle", "list-heads", bundle_path.as_str()])?;
+    let output = execute_command(
+        "git",
+        &["bundle", "list-heads", bundle_path.as_str()],
+        Path::new("."),
+    )?;
 
     if !output.status.success() {
         bail!("Git command failed: Failed to list bundle heads");
@@ -440,10 +453,18 @@ fn handle_branch_conflict(branch_name: &str) -> Result<String> {
     }
 }
 
-fn try_fast_forward_import(bundle_path: &Path, branch_name: &str) -> Result<bool> {
+fn try_fast_forward_import(
+    bundle_path: &Path,
+    branch_name: &str,
+    current_dir: &Path,
+) -> Result<bool> {
     let refspec = format!("refs/heads/{}:refs/heads/{}", branch_name, branch_name);
 
-    let output = execute_command("git", &["fetch", bundle_path.as_str(), &refspec])?;
+    let output = execute_command(
+        "git",
+        &["fetch", bundle_path.as_str(), &refspec],
+        current_dir,
+    )?;
 
     if output.status.success() {
         // Fast-forward succeeded
@@ -465,13 +486,22 @@ fn try_fast_forward_import(bundle_path: &Path, branch_name: &str) -> Result<bool
     }
 }
 
-fn import_bundle(bundle_path: &Path, original_branch: &str, target_branch: &str) -> Result<()> {
+fn import_bundle(
+    bundle_path: &Path,
+    original_branch: &str,
+    target_branch: &str,
+    current_dir: &Path,
+) -> Result<()> {
     let refspec = format!(
         "refs/heads/{}:refs/heads/{}",
         original_branch, target_branch
     );
 
-    let output = execute_command("git", &["fetch", bundle_path.as_str(), &refspec])?;
+    let output = execute_command(
+        "git",
+        &["fetch", bundle_path.as_str(), &refspec],
+        current_dir,
+    )?;
 
     if !output.status.success() {
         let error_msg = String::from_utf8_lossy(&output.stderr);
@@ -989,16 +1019,10 @@ mod tests {
             .unwrap();
 
         // Now try to fast-forward import - this should succeed
-        let camino_bundle_path = camino::Utf8Path::from_path(&bundle_path).unwrap();
+        let camino_bundle_path = Path::from_path(&bundle_path).unwrap();
+        let camino_temp_dir = Path::from_path(temp_dir.path()).unwrap();
 
-        // Change to the temp directory for the import
-        let original_dir = std::env::current_dir().unwrap();
-        std::env::set_current_dir(temp_dir.path()).unwrap();
-
-        let result = try_fast_forward_import(camino_bundle_path, "feature-branch");
-
-        // Restore original directory
-        std::env::set_current_dir(original_dir).unwrap();
+        let result = try_fast_forward_import(camino_bundle_path, "feature-branch", camino_temp_dir);
 
         assert!(
             result.is_ok(),
@@ -1080,14 +1104,10 @@ mod tests {
             .unwrap();
 
         // Now try to fast-forward import - this should return Ok(false)
-        let camino_bundle_path = camino::Utf8Path::from_path(&bundle_path).unwrap();
+        let camino_bundle_path = Path::from_path(&bundle_path).unwrap();
+        let camino_temp_dir = Path::from_path(temp_dir.path()).unwrap();
 
-        let original_dir = std::env::current_dir().unwrap();
-        std::env::set_current_dir(temp_dir.path()).unwrap();
-
-        let result = try_fast_forward_import(camino_bundle_path, "feature-branch");
-
-        std::env::set_current_dir(original_dir).unwrap();
+        let result = try_fast_forward_import(camino_bundle_path, "feature-branch", camino_temp_dir);
 
         assert!(
             result.is_ok(),

@@ -1,4 +1,5 @@
 use anyhow::Result;
+use camino::Utf8Path as Path;
 use clap::{Parser, Subcommand};
 
 pub(crate) mod command_utils;
@@ -61,12 +62,20 @@ fn setup_git_aliases() -> Result<()> {
 
     // Set up git qe alias
     let qe_alias = "!git qsync export";
-    execute_command("git", &["config", "--global", "alias.qe", qe_alias])?;
+    execute_command(
+        "git",
+        &["config", "--global", "alias.qe", qe_alias],
+        Path::new("."),
+    )?;
     println!("✓ Set up 'git qe' alias");
 
     // Set up git qi alias
     let qi_alias = "!git qsync import";
-    execute_command("git", &["config", "--global", "alias.qi", qi_alias])?;
+    execute_command(
+        "git",
+        &["config", "--global", "alias.qi", qi_alias],
+        Path::new("."),
+    )?;
     println!("✓ Set up 'git qi' alias");
 
     println!();
