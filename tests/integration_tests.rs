@@ -111,6 +111,9 @@ fn test_import_missing_config() {
 
     let mut cmd = Command::cargo_bin("git-qsync").unwrap();
     cmd.current_dir(temp_dir.path());
+    // Isolate from global/system git config
+    cmd.env("GIT_CONFIG_GLOBAL", "/dev/null");
+    cmd.env("GIT_CONFIG_SYSTEM", "/dev/null");
     cmd.args(["import"]);
     cmd.assert().failure().stderr(predicate::str::contains(
         "Configuration missing: qsync.source-vm",
