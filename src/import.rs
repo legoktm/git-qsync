@@ -40,17 +40,48 @@ pub(crate) fn run(bundle_file: Option<String>) -> Result<()> {
     // Check if branch exists locally
     let branch_exists = check_branch_exists(&repo, &branch_name)?;
 
-    let final_branch_name = if branch_exists {
-        handle_branch_conflict(&branch_name)?
-    } else {
-        branch_name.clone()
-    };
+    let (final_branch_name, temp_branch_created) = if branch_exists {
+        // First, try to fast-forward the existing branch
+        println!(
+            "Branch '{}' already exists, attempting fast-forward...",
+            branch_name
+        );
+        match try_fast_forward_import(&bundle_path, &branch_name) {
+            Ok(true) => {
+                // Fast-forward succeeded
+                println!("Successfully fast-forwarded branch '{}'", branch_name);
+                return switch_to_branch(&repo, &branch_name);
+            }
+            Ok(false) => {
+                // Fast-forward not possible, need to handle conflict
+                println!("Cannot fast-forward branch '{}'", branch_name);
+                let chosen_branch = handle_branch_conflict(&branch_name)?;
 
-    // Handle branch overwriting if needed
-    let temp_branch_created = if branch_exists && final_branch_name == branch_name {
-        delete_branch_safely(&repo, &final_branch_name)?
+                let temp_branch = if chosen_branch == branch_name {
+                    // User chose to overwrite
+                    delete_branch_safely(&repo, &branch_name)?
+                } else {
+                    None
+                };
+
+                (chosen_branch, temp_branch)
+            }
+            Err(e) => {
+                // Error during fast-forward attempt, fall back to conflict handling
+                eprintln!("Fast-forward attempt failed: {}", e);
+                let chosen_branch = handle_branch_conflict(&branch_name)?;
+
+                let temp_branch = if chosen_branch == branch_name {
+                    delete_branch_safely(&repo, &branch_name)?
+                } else {
+                    None
+                };
+
+                (chosen_branch, temp_branch)
+            }
+        }
     } else {
-        None
+        (branch_name.clone(), None)
     };
 
     // Import the bundle
@@ -406,6 +437,31 @@ fn handle_branch_conflict(branch_name: &str) -> Result<String> {
         }
         2 => bail!("Cancelled by user"),
         _ => unreachable!(),
+    }
+}
+
+fn try_fast_forward_import(bundle_path: &Path, branch_name: &str) -> Result<bool> {
+    let refspec = format!("refs/heads/{}:refs/heads/{}", branch_name, branch_name);
+
+    let output = execute_command("git", &["fetch", bundle_path.as_str(), &refspec])?;
+
+    if output.status.success() {
+        // Fast-forward succeeded
+        Ok(true)
+    } else {
+        let error_msg = String::from_utf8_lossy(&output.stderr);
+        // Check if the error is due to non-fast-forward or checked-out branch
+        if error_msg.contains("non-fast-forward")
+            || error_msg.contains("would clobber existing tag")
+            || error_msg.contains("rejected")
+            || error_msg.contains("refusing to fetch into branch")
+        {
+            // This is expected when fast-forward isn't possible
+            Ok(false)
+        } else {
+            // Some other error occurred
+            bail!("Failed to fetch bundle: {}", error_msg);
+        }
     }
 }
 
@@ -875,5 +931,173 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("Failed to switch to branch"));
+    }
+
+    #[test]
+    fn test_try_fast_forward_import_success() {
+        let temp_dir = TempDir::new().unwrap();
+        setup_test_git_repo(temp_dir.path()).unwrap();
+
+        // Create a feature branch with an additional commit
+        let output = Command::new("git")
+            .args(["checkout", "-b", "feature-branch"])
+            .current_dir(temp_dir.path())
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+
+        std::fs::write(temp_dir.path().join("file.txt"), "content").unwrap();
+        Command::new("git")
+            .args(["add", "file.txt"])
+            .current_dir(temp_dir.path())
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-m", "Add file"])
+            .current_dir(temp_dir.path())
+            .output()
+            .unwrap();
+
+        // Create a bundle of the feature branch from main
+        let bundle_path = temp_dir.path().join("test.bundle");
+        let output = Command::new("git")
+            .args([
+                "bundle",
+                "create",
+                bundle_path.to_str().unwrap(),
+                "main..feature-branch",
+            ])
+            .current_dir(temp_dir.path())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "Failed to create bundle: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        // Switch back to main and create the feature branch without the new commit
+        Command::new("git")
+            .args(["checkout", "main"])
+            .current_dir(temp_dir.path())
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["branch", "feature-branch"])
+            .current_dir(temp_dir.path())
+            .output()
+            .unwrap();
+
+        // Now try to fast-forward import - this should succeed
+        let camino_bundle_path = camino::Utf8Path::from_path(&bundle_path).unwrap();
+
+        // Change to the temp directory for the import
+        let original_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(temp_dir.path()).unwrap();
+
+        let result = try_fast_forward_import(camino_bundle_path, "feature-branch");
+
+        // Restore original directory
+        std::env::set_current_dir(original_dir).unwrap();
+
+        assert!(
+            result.is_ok(),
+            "Fast-forward import failed: {:?}",
+            result.err()
+        );
+        assert_eq!(result.unwrap(), true, "Fast-forward should have succeeded");
+
+        // Verify the branch was updated
+        let output = Command::new("git")
+            .args(["log", "--oneline", "feature-branch"])
+            .current_dir(temp_dir.path())
+            .output()
+            .unwrap();
+        let log = String::from_utf8(output.stdout).unwrap();
+        assert!(
+            log.contains("Add file"),
+            "Branch should have the new commit"
+        );
+    }
+
+    #[test]
+    fn test_try_fast_forward_import_non_fast_forward() {
+        let temp_dir = TempDir::new().unwrap();
+        setup_test_git_repo(temp_dir.path()).unwrap();
+
+        // Create a feature branch with a commit
+        let output = Command::new("git")
+            .args(["checkout", "-b", "feature-branch"])
+            .current_dir(temp_dir.path())
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+
+        std::fs::write(temp_dir.path().join("file1.txt"), "content1").unwrap();
+        Command::new("git")
+            .args(["add", "file1.txt"])
+            .current_dir(temp_dir.path())
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-m", "Add file1"])
+            .current_dir(temp_dir.path())
+            .output()
+            .unwrap();
+
+        // Create a bundle of this state
+        let bundle_path = temp_dir.path().join("test.bundle");
+        let output = Command::new("git")
+            .args([
+                "bundle",
+                "create",
+                bundle_path.to_str().unwrap(),
+                "main..feature-branch",
+            ])
+            .current_dir(temp_dir.path())
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+
+        // Add a diverging commit to the local branch
+        std::fs::write(temp_dir.path().join("file2.txt"), "content2").unwrap();
+        Command::new("git")
+            .args(["add", "file2.txt"])
+            .current_dir(temp_dir.path())
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-m", "Add file2"])
+            .current_dir(temp_dir.path())
+            .output()
+            .unwrap();
+
+        // Switch to main so we're not on the branch we're importing
+        Command::new("git")
+            .args(["checkout", "main"])
+            .current_dir(temp_dir.path())
+            .output()
+            .unwrap();
+
+        // Now try to fast-forward import - this should return Ok(false)
+        let camino_bundle_path = camino::Utf8Path::from_path(&bundle_path).unwrap();
+
+        let original_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(temp_dir.path()).unwrap();
+
+        let result = try_fast_forward_import(camino_bundle_path, "feature-branch");
+
+        std::env::set_current_dir(original_dir).unwrap();
+
+        assert!(
+            result.is_ok(),
+            "Fast-forward check failed: {:?}",
+            result.err()
+        );
+        assert_eq!(
+            result.unwrap(),
+            false,
+            "Fast-forward should have been rejected (non-fast-forward)"
+        );
     }
 }
