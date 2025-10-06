@@ -1,5 +1,5 @@
 use crate::command_utils::execute_command;
-use crate::config::{check_git_repo, get_project_name, Config};
+use crate::config::{check_git_repo, get_default_branch_from_repo, get_project_name, Config};
 use anyhow::{bail, Context, Result};
 use camino::{Utf8Path as Path, Utf8PathBuf as PathBuf};
 use dialoguer::Select;
@@ -135,11 +135,12 @@ fn find_latest_bundle(dir_path: &str) -> Result<PathBuf> {
 
     // Sort by modification time (newest first)
     bundles.sort_by_key(|path| {
-        fs::metadata(path)
-            .and_then(|m| m.modified())
-            .unwrap_or(std::time::UNIX_EPOCH)
+        std::cmp::Reverse(
+            fs::metadata(path)
+                .and_then(|m| m.modified())
+                .unwrap_or(std::time::UNIX_EPOCH),
+        )
     });
-    bundles.reverse();
 
     Ok(bundles[0].clone())
 }
@@ -200,155 +201,129 @@ fn check_branch_exists(repo: &gix::Repository, branch_name: &str) -> Result<bool
     }
 }
 
-fn get_default_branch(repo: &gix::Repository) -> Result<Option<String>> {
-    // Try to get the default branch from the remote HEAD reference
-    if let Ok(Some(remote_head_ref)) = repo.try_find_reference("refs/remotes/origin/HEAD") {
-        if let gix::refs::TargetRef::Symbolic(name) = remote_head_ref.target() {
-            let full_name = name.as_bstr().to_string();
-            if let Some(branch_name) = full_name.strip_prefix("refs/remotes/origin/") {
-                return Ok(Some(branch_name.to_string()));
-            }
-        }
-    }
-
-    Ok(None)
+fn get_repo_path(repo: &gix::Repository) -> Result<&Path> {
+    repo.workdir()
+        .ok_or_else(|| anyhow::anyhow!("Repository has no working directory"))
+        .and_then(|p| {
+            Path::from_path(p).ok_or_else(|| anyhow::anyhow!("Repository path is not valid UTF-8"))
+        })
 }
 
-fn get_current_branch(repo: &gix::Repository) -> Result<String> {
-    let head = repo.head()?;
-
-    match head.referent_name() {
-        Some(name) => {
-            // Convert from refs/heads/branch-name to branch-name
-            let name_str = name.as_bstr().to_string();
-            if let Some(branch_name) = name_str.strip_prefix("refs/heads/") {
-                Ok(branch_name.to_string())
-            } else {
-                // If it's not a branch reference, return the full name
-                Ok(name_str)
-            }
-        }
-        None => {
-            if head.is_detached() {
-                bail!("HEAD is detached, not on a branch");
-            } else {
-                bail!("HEAD is unborn or in an unexpected state");
+fn try_switch_to_default_branch(
+    repo: &gix::Repository,
+    branch_name: &str,
+    repo_path: &Path,
+) -> Result<bool> {
+    if let Ok(Some(default_branch)) = get_default_branch_from_repo(repo) {
+        if check_branch_exists(repo, &default_branch)? && default_branch != branch_name {
+            let output = execute_command("git", &["checkout", &default_branch], repo_path)?;
+            if output.status.success() {
+                println!(
+                    "Switched to default branch '{}' before deleting '{}'",
+                    default_branch, branch_name
+                );
+                return Ok(true);
             }
         }
     }
+    Ok(false)
+}
+
+fn try_switch_to_any_branch(
+    repo: &gix::Repository,
+    branch_name: &str,
+    repo_path: &Path,
+) -> Result<bool> {
+    if let Ok(iter) = repo.references()?.local_branches() {
+        for branch_ref in iter.flatten() {
+            if let Some(name) = branch_ref.name().category_and_short_name() {
+                let other_branch = name.1.to_string();
+                if other_branch != branch_name && !other_branch.is_empty() {
+                    let output = execute_command("git", &["checkout", &other_branch], repo_path)?;
+                    if output.status.success() {
+                        println!(
+                            "Switched to existing branch '{}' before deleting '{}'",
+                            other_branch, branch_name
+                        );
+                        return Ok(true);
+                    }
+                }
+            }
+        }
+    }
+    Ok(false)
+}
+
+fn create_and_switch_to_temp_branch(
+    repo: &gix::Repository,
+    branch_name: &str,
+    repo_path: &Path,
+) -> Result<String> {
+    let temp_branch = format!("temp-before-import-{}", branch_name);
+
+    // Delete the temp branch if it already exists (from a previous failed import)
+    if check_branch_exists(repo, &temp_branch)? {
+        let output = execute_command("git", &["branch", "-D", &temp_branch], repo_path)?;
+        if !output.status.success() {
+            let error_msg = String::from_utf8_lossy(&output.stderr);
+            bail!(
+                "Failed to delete existing temporary branch '{}': {}",
+                temp_branch,
+                error_msg
+            );
+        }
+    }
+
+    let output = execute_command(
+        "git",
+        &["checkout", "-b", &temp_branch, "HEAD~1"],
+        repo_path,
+    )?;
+    if !output.status.success() {
+        // Try from first commit if HEAD~1 doesn't work
+        let output = execute_command("git", &["checkout", "--orphan", &temp_branch], repo_path)?;
+        if !output.status.success() {
+            bail!(
+                "Cannot switch away from branch '{}' to delete it. Git errors:\nHEAD~1 checkout: {}\nOrphan checkout: {}",
+                branch_name,
+                String::from_utf8_lossy(&output.stderr),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        // Clear the index for orphan branch
+        let _ = execute_command("git", &["reset", "--hard"], repo_path);
+    }
+    println!(
+        "Created temporary branch '{}' before deleting '{}'",
+        temp_branch, branch_name
+    );
+    Ok(temp_branch)
 }
 
 fn delete_branch_safely(repo: &gix::Repository, branch_name: &str) -> Result<Option<String>> {
     let is_current = is_branch_checked_out(repo, branch_name)?;
-    let repo_path = repo
-        .workdir()
-        .ok_or_else(|| anyhow::anyhow!("Repository has no working directory"))
-        .and_then(|p| {
-            Path::from_path(p).ok_or_else(|| anyhow::anyhow!("Repository path is not valid UTF-8"))
-        })?;
+    let repo_path = get_repo_path(repo)?;
 
     let temp_branch_name = if is_current {
-        // Switch to a safe branch before deleting
-        let mut switched = false;
-
-        // First, try to switch to the detected default branch
-        if let Ok(Some(default_branch)) = get_default_branch(repo) {
-            if check_branch_exists(repo, &default_branch)? && default_branch != branch_name {
-                let output =
-                    execute_command_at_path("git", &["checkout", &default_branch], repo_path)?;
-                if output.status.success() {
-                    println!(
-                        "Switched to default branch '{}' before deleting '{}'",
-                        default_branch, branch_name
-                    );
-                    switched = true;
-                }
-            }
-        }
-
-        if !switched {
-            // Try to switch to any other existing local branch
-            if let Ok(iter) = repo.references()?.local_branches() {
-                for branch_ref in iter.flatten() {
-                    if let Some(name) = branch_ref.name().category_and_short_name() {
-                        let other_branch = name.1.to_string();
-                        if other_branch != branch_name && !other_branch.is_empty() {
-                            let output = execute_command_at_path(
-                                "git",
-                                &["checkout", &other_branch],
-                                repo_path,
-                            )?;
-                            if output.status.success() {
-                                println!(
-                                    "Switched to existing branch '{}' before deleting '{}'",
-                                    other_branch, branch_name
-                                );
-                                switched = true;
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-
-            if !switched {
-                // Create a temporary branch from HEAD~1 or from the first commit
-                let temp_branch = format!("temp-before-import-{}", branch_name);
-
-                // Delete the temp branch if it already exists (from a previous failed import)
-                if check_branch_exists(repo, &temp_branch)? {
-                    let output =
-                        execute_command_at_path("git", &["branch", "-D", &temp_branch], repo_path)?;
-                    if !output.status.success() {
-                        let error_msg = String::from_utf8_lossy(&output.stderr);
-                        bail!(
-                            "Failed to delete existing temporary branch '{}': {}",
-                            temp_branch,
-                            error_msg
-                        );
-                    }
-                }
-
-                let output = execute_command_at_path(
-                    "git",
-                    &["checkout", "-b", &temp_branch, "HEAD~1"],
-                    repo_path,
-                )?;
-                if !output.status.success() {
-                    // Try from first commit if HEAD~1 doesn't work
-                    let output = execute_command_at_path(
-                        "git",
-                        &["checkout", "--orphan", &temp_branch],
-                        repo_path,
-                    )?;
-                    if !output.status.success() {
-                        bail!(
-                            "Cannot switch away from branch '{}' to delete it. Git errors:\nHEAD~1 checkout: {}\nOrphan checkout: {}",
-                            branch_name,
-                            String::from_utf8_lossy(&output.stderr),
-                            String::from_utf8_lossy(&output.stderr)
-                        );
-                    }
-                    // Clear the index for orphan branch
-                    let _ = execute_command_at_path("git", &["reset", "--hard"], repo_path);
-                }
-                println!(
-                    "Created temporary branch '{}' before deleting '{}'",
-                    temp_branch, branch_name
-                );
-                Some(temp_branch)
-            } else {
-                None
-            }
-        } else {
+        // Try to switch to the default branch first, then any other branch
+        if try_switch_to_default_branch(repo, branch_name, repo_path)?
+            || try_switch_to_any_branch(repo, branch_name, repo_path)?
+        {
             None
+        } else {
+            // Create a temporary branch as last resort
+            Some(create_and_switch_to_temp_branch(
+                repo,
+                branch_name,
+                repo_path,
+            )?)
         }
     } else {
         None
     };
 
     // Now delete the branch
-    let output = execute_command_at_path("git", &["branch", "-D", branch_name], repo_path)?;
+    let output = execute_command("git", &["branch", "-D", branch_name], repo_path)?;
 
     if !output.status.success() {
         let error_msg = String::from_utf8_lossy(&output.stderr);
@@ -360,13 +335,8 @@ fn delete_branch_safely(repo: &gix::Repository, branch_name: &str) -> Result<Opt
 }
 
 fn switch_to_branch(repo: &gix::Repository, branch_name: &str) -> Result<()> {
-    let repo_path = repo
-        .workdir()
-        .ok_or_else(|| anyhow::anyhow!("Repository has no working directory"))
-        .and_then(|p| {
-            Path::from_path(p).ok_or_else(|| anyhow::anyhow!("Repository path is not valid UTF-8"))
-        })?;
-    let output = execute_command_at_path("git", &["checkout", branch_name], repo_path)?;
+    let repo_path = get_repo_path(repo)?;
+    let output = execute_command("git", &["checkout", branch_name], repo_path)?;
 
     if !output.status.success() {
         let error_msg = String::from_utf8_lossy(&output.stderr);
@@ -382,17 +352,11 @@ fn switch_to_branch(repo: &gix::Repository, branch_name: &str) -> Result<()> {
 }
 
 fn cleanup_temp_branch(repo: &gix::Repository, temp_branch_name: &str) -> Result<()> {
-    let repo_path = repo
-        .workdir()
-        .ok_or_else(|| anyhow::anyhow!("Repository has no working directory"))
-        .and_then(|p| {
-            Path::from_path(p).ok_or_else(|| anyhow::anyhow!("Repository path is not valid UTF-8"))
-        })?;
+    let repo_path = get_repo_path(repo)?;
 
     // Check if the temporary branch still exists
     if check_branch_exists(repo, temp_branch_name)? {
-        let output =
-            execute_command_at_path("git", &["branch", "-D", temp_branch_name], repo_path)?;
+        let output = execute_command("git", &["branch", "-D", temp_branch_name], repo_path)?;
 
         if output.status.success() {
             println!("Cleaned up temporary branch '{}'", temp_branch_name);
@@ -410,20 +374,9 @@ fn cleanup_temp_branch(repo: &gix::Repository, temp_branch_name: &str) -> Result
 }
 
 fn is_branch_checked_out(repo: &gix::Repository, branch_name: &str) -> Result<bool> {
-    let current_branch = get_current_branch(repo)?;
+    use crate::config::get_current_branch_from_repo;
+    let current_branch = get_current_branch_from_repo(repo)?;
     Ok(current_branch == branch_name)
-}
-
-fn execute_command_at_path(
-    cmd: &str,
-    args: &[&str],
-    repo_path: &Path,
-) -> Result<std::process::Output> {
-    let output = std::process::Command::new(cmd)
-        .args(args)
-        .current_dir(repo_path.as_std_path())
-        .output()?;
-    Ok(output)
 }
 
 fn handle_branch_conflict(branch_name: &str) -> Result<String> {
@@ -514,6 +467,7 @@ fn import_bundle(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::get_current_branch_from_repo;
     use std::process::Command;
     use tempfile::TempDir;
 
@@ -620,7 +574,7 @@ mod tests {
         std::fs::write(refs_dir.join("HEAD"), "ref: refs/remotes/origin/main\n").unwrap();
 
         let repo = gix::open(temp_dir.path()).unwrap();
-        let result = get_default_branch(&repo);
+        let result = get_default_branch_from_repo(&repo);
 
         assert!(
             result.is_ok(),
@@ -657,7 +611,7 @@ mod tests {
         std::fs::write(refs_dir.join("HEAD"), "ref: refs/remotes/origin/develop\n").unwrap();
 
         let repo = gix::open(temp_dir.path()).unwrap();
-        let result = get_default_branch(&repo);
+        let result = get_default_branch_from_repo(&repo);
 
         assert!(
             result.is_ok(),
@@ -676,7 +630,7 @@ mod tests {
         setup_test_git_repo(temp_dir.path()).unwrap();
 
         let repo = gix::open(temp_dir.path()).unwrap();
-        let result = get_default_branch(&repo);
+        let result = get_default_branch_from_repo(&repo);
 
         assert!(
             result.is_ok(),
@@ -692,7 +646,7 @@ mod tests {
     fn test_get_default_branch_current_repo() {
         // Test with the actual current repository (git-qsync)
         let repo = gix::open(".").unwrap();
-        let result = get_default_branch(&repo);
+        let result = get_default_branch_from_repo(&repo);
 
         assert!(
             result.is_ok(),
@@ -712,7 +666,7 @@ mod tests {
         setup_test_git_repo(temp_dir.path()).unwrap();
 
         let repo = gix::open(temp_dir.path()).unwrap();
-        let result = get_current_branch(&repo);
+        let result = get_current_branch_from_repo(&repo);
 
         assert!(
             result.is_ok(),
@@ -747,7 +701,7 @@ mod tests {
         );
 
         let repo = gix::open(temp_dir.path()).unwrap();
-        let result = get_current_branch(&repo);
+        let result = get_current_branch_from_repo(&repo);
 
         assert!(
             result.is_ok(),
@@ -780,7 +734,7 @@ mod tests {
         assert!(output.status.success(), "Failed to checkout detached HEAD");
 
         let repo = gix::open(temp_dir.path()).unwrap();
-        let result = get_current_branch(&repo);
+        let result = get_current_branch_from_repo(&repo);
 
         assert!(result.is_err(), "Should fail on detached HEAD");
         let error_msg = result.unwrap_err().to_string();
@@ -827,7 +781,7 @@ mod tests {
 
         // Check that main/master is currently checked out
         let repo = gix::open(temp_dir.path()).unwrap();
-        let current = get_current_branch(&repo).unwrap();
+        let current = get_current_branch_from_repo(&repo).unwrap();
 
         let result = is_branch_checked_out(&repo, &current);
         assert!(
@@ -866,7 +820,7 @@ mod tests {
 
         // Verify we're on a different branch (not the one we're about to delete)
         let repo = gix::open(temp_dir.path()).unwrap();
-        let current_branch = get_current_branch(&repo).unwrap();
+        let current_branch = get_current_branch_from_repo(&repo).unwrap();
         assert_ne!(
             current_branch, "delete-me",
             "Should not be on the branch we're deleting"
@@ -901,7 +855,7 @@ mod tests {
 
         // Verify we're on the branch we want to delete
         let repo = gix::open(temp_dir.path()).unwrap();
-        let current_branch = get_current_branch(&repo).unwrap();
+        let current_branch = get_current_branch_from_repo(&repo).unwrap();
         assert_eq!(
             current_branch, "feature-to-delete",
             "Should be on the branch we're about to delete"

@@ -1,5 +1,5 @@
 use crate::command_utils::execute_command;
-use crate::config::{check_git_repo, get_current_branch, get_project_name};
+use crate::config::{check_git_repo, get_current_branch, get_default_branch, get_project_name};
 use crate::system_config::SystemConfig;
 use anyhow::{bail, Context, Result};
 use camino::Utf8Path as Path;
@@ -76,47 +76,6 @@ fn is_default_branch(branch: &str, default_branch: &str) -> Result<bool> {
         .unwrap_or(default_branch);
 
     Ok(normalized_branch == normalized_default)
-}
-
-fn get_default_branch() -> Result<String> {
-    let output = execute_command(
-        "git",
-        &["symbolic-ref", "refs/remotes/origin/HEAD"],
-        Path::new("."),
-    )?;
-
-    if !output.status.success() {
-        let repo = gix::discover(".")?;
-
-        // Fallback to main/master (remote first, then local)
-        if repo.find_reference("refs/remotes/origin/main").is_ok() {
-            return Ok("origin/main".to_string());
-        }
-
-        if repo.find_reference("refs/remotes/origin/master").is_ok() {
-            return Ok("origin/master".to_string());
-        }
-
-        // Try local branches if no remote
-        if repo.find_reference("refs/heads/main").is_ok() {
-            return Ok("main".to_string());
-        }
-
-        if repo.find_reference("refs/heads/master").is_ok() {
-            return Ok("master".to_string());
-        }
-
-        bail!("Cannot determine default branch");
-    }
-
-    let default_ref = String::from_utf8(output.stdout)?.trim().to_string();
-
-    // Extract branch name from refs/remotes/origin/main
-    let branch = default_ref
-        .strip_prefix("refs/remotes/")
-        .unwrap_or(&default_ref);
-
-    Ok(branch.to_string())
 }
 
 fn get_merge_base(branch: &str, default_branch: &str) -> Result<String> {
