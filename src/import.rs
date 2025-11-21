@@ -54,7 +54,11 @@ pub(crate) fn run(bundle_file: Option<String>) -> Result<()> {
             }
             Ok((false, error_msg)) => {
                 // Fast-forward not possible, need to handle conflict
-                eprintln!("Cannot fast-forward branch '{}': {}", branch_name, error_msg.trim());
+                eprintln!(
+                    "Cannot fast-forward branch '{}': {}",
+                    branch_name,
+                    error_msg.trim()
+                );
                 let chosen_branch = handle_branch_conflict(&branch_name)?;
 
                 let temp_branch = if chosen_branch == branch_name {
@@ -411,11 +415,9 @@ fn try_fast_forward_import(
     branch_name: &str,
     current_dir: &Path,
 ) -> Result<(bool, String)> {
-    let refspec = format!("refs/heads/{}:refs/heads/{}", branch_name, branch_name);
-
     let output = execute_command(
         "git",
-        &["fetch", bundle_path.as_str(), &refspec],
+        &["pull", "--ff-only", bundle_path.as_str(), branch_name],
         current_dir,
     )?;
 
@@ -424,17 +426,17 @@ fn try_fast_forward_import(
         Ok((true, String::new()))
     } else {
         let error_msg = String::from_utf8_lossy(&output.stderr).to_string();
-        // Check if the error is due to non-fast-forward or checked-out branch
-        if error_msg.contains("non-fast-forward")
+        // Check if the error is due to non-fast-forward
+        if error_msg.contains("Not possible to fast-forward")
+            || error_msg.contains("non-fast-forward")
             || error_msg.contains("would clobber existing tag")
             || error_msg.contains("rejected")
-            || error_msg.contains("refusing to fetch into branch")
         {
             // This is expected when fast-forward isn't possible
             Ok((false, error_msg))
         } else {
             // Some other error occurred
-            bail!("Failed to fetch bundle: {}", error_msg);
+            bail!("Failed to pull bundle: {}", error_msg);
         }
     }
 }
@@ -983,7 +985,11 @@ mod tests {
             "Fast-forward import failed: {:?}",
             result.err()
         );
-        assert_eq!(result.unwrap().0, true, "Fast-forward should have succeeded");
+        assert_eq!(
+            result.unwrap().0,
+            true,
+            "Fast-forward should have succeeded"
+        );
 
         // Verify the branch was updated
         let output = Command::new("git")
@@ -1070,8 +1076,7 @@ mod tests {
         );
         let (success, error_msg) = result.unwrap();
         assert_eq!(
-            success,
-            false,
+            success, false,
             "Fast-forward should have been rejected (non-fast-forward)"
         );
         assert!(!error_msg.is_empty(), "Error message should not be empty");
